@@ -17,7 +17,7 @@ authors = [
 license = "MIT"
 license-files = [ "LICENSE" ]
 repository = "https://github.com/ankitpopli1891/django-autotranslate"
-homepage = "https://django-autotranslate.rtfd.io"
+homepage = "https://django-autotranslate.readthedocs.io"
 keywords = ["django",  "i18n", "translate", "cli"]
 classifiers = [
     "Environment :: Console",
