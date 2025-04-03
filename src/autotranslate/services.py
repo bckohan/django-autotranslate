@@ -1,8 +1,9 @@
-import collections
-import six
-from autotranslate.compat import googletrans, googleapiclient, boto3
+import asyncio
+import typing as t
 
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
+from django.utils.translation import gettext as _
 
 
 class BaseTranslatorService:
@@ -10,19 +11,31 @@ class BaseTranslatorService:
     Defines the base methods that should be implemented
     """
 
-    def translate_string(self, text, target_language, source_language='en'):
+    def translate_string(
+        self, text: str, target_language: str, source_language: str = "en"
+    ) -> str:
         """
         Returns a single translated string literal for the target language.
         """
-        raise NotImplementedError('.translate_string() must be overridden.')
+        raise NotImplementedError(
+            _("{function}() must be overridden.").format(function="translate_string")
+        )
 
-    def translate_strings(self, strings, target_language, source_language='en', optimized=True):
+    def translate_strings(
+        self,
+        strings: t.Sequence[str],
+        target_language: str,
+        source_language: str = "en",
+    ) -> t.Generator[str, None, None]:
         """
-        Returns a iterator containing translated strings for the target language
-        in the same order as in the strings.
-        :return:    if `optimized` is True returns a generator else an array
+        Yields containing translated strings for the target language in the same order
+        as the input strings.
+
+        :yield: translated strings
         """
-        raise NotImplementedError('.translate_strings() must be overridden.')
+        raise NotImplementedError(
+            _("{function}() must be overridden.").format(function="translate_strings")
+        )
 
 
 class GoogleTranslatorService(BaseTranslatorService):
@@ -32,17 +45,29 @@ class GoogleTranslatorService(BaseTranslatorService):
     """
 
     def __init__(self):
-        assert googletrans, '`TranslateTranslatorService` requires `translate` package'
+        import googletrans
+
         self.service = googletrans.Translator()
 
-    def translate_string(self, text, target_language, source_language='en'):
-        assert isinstance(text, six.string_types), '`text` should a string literal'
-        return self.service.translate(text,dest=target_language,src=source_language).text
+    def translate_string(
+        self, text: str, target_language: str, source_language: str = "en"
+    ):
+        return asyncio.run(
+            self.service.translate(text, dest=target_language, src=source_language)
+        ).text
 
-    def translate_strings(self, strings, target_language, source_language='en', optimized=True):
-        assert isinstance(strings, collections.abc.Iterable), '`strings` should a iterable containing string_types'
-        translations =  self.service.translate(list(strings),dest=target_language,src=source_language)
-        return [item.text for item in translations]
+    def translate_strings(
+        self,
+        strings: t.Sequence[str],
+        target_language: str,
+        source_language: str = "en",
+    ) -> t.Generator[str, None, None]:
+        translations = asyncio.run(
+            self.service.translate(
+                list(strings), dest=target_language, src=source_language
+            )
+        )
+        return (item.text for item in translations)
 
 
 class GoogleAPITranslatorService(BaseTranslatorService):
@@ -52,50 +77,61 @@ class GoogleAPITranslatorService(BaseTranslatorService):
     """
 
     def __init__(self, max_segments=128):
-        assert googleapiclient, '`GoogleAPITranslatorService` requires `google-api-python-client` package'
+        try:
+            from googleapiclient.discovery import build
 
-        self.developer_key = getattr(settings, 'GOOGLE_TRANSLATE_KEY', None)
-        assert self.developer_key, ('`GOOGLE_TRANSLATE_KEY` is not configured, '
-                                    'it is required by `GoogleAPITranslatorService`')
+            self.developer_key = getattr(settings, "GOOGLE_TRANSLATE_KEY", None)
+            if not self.developer_key:
+                raise ImproperlyConfigured(
+                    _(
+                        "`{setting}` is not configured, it is required by `{service}`"
+                    ).format(
+                        setting="GOOGLE_TRANSLATE_KEY", service=self.__class__.__name__
+                    )
+                )
 
-        from googleapiclient.discovery import build
-        self.service = build('translate', 'v2', developerKey=self.developer_key)
+            self.service = build("translate", "v2", developerKey=self.developer_key)
 
-        # the google translation API has a limit of max
-        # 128 translations in a single request
-        # and throws `Too many text segments Error`
-        self.max_segments = max_segments
-        self.translated_strings = []
-
-    def translate_string(self, text, target_language, source_language='en'):
-        assert isinstance(text, six.string_types), '`text` should a string literal'
-        response = self.service.translations() \
-            .list(source=source_language, target=target_language, q=[text]).execute()
-        return response.get('translations').pop(0).get('translatedText')
-
-    def translate_strings(self, strings, target_language, source_language='en', optimized=True):
-        try: 
-            assert isinstance(strings, collections.MutableSequence), \
-                '`strings` should be a sequence containing string_types'
-        except:
-            assert isinstance(strings, collections.abc.MutableSequence)
-            assert not optimized, 'optimized=True is not supported in `GoogleAPITranslatorService`'
-        if len(strings) == 0:
-            return []
-        elif len(strings) <= self.max_segments:
-            setattr(self, 'translated_strings', getattr(self, 'translated_strings', []))
-            response = self.service.translations() \
-                .list(source=source_language, target=target_language, q=strings).execute()
-            self.translated_strings.extend([t.get('translatedText') for t in response.get('translations')])
-            return self.translated_strings
-        else:
-            self.translate_strings(strings[0:self.max_segments], target_language, source_language, optimized)
-            _translated_strings = self.translate_strings(strings[self.max_segments:],
-                                                         target_language, source_language, optimized)
-
-            # reset the property or it will grow with subsequent calls
+            # the google translation API has a limit of max
+            # 128 translations in a single request
+            # and throws `Too many text segments Error`
+            self.max_segments = max_segments
             self.translated_strings = []
-            return _translated_strings
+        except ImportError as ie:
+            raise ImportError(
+                _("`{service}` requires the `{package}` package.").format(
+                    service=self.__class__.__name__, package="google-api-python-client"
+                )
+            ) from ie
+
+    def translate_string(
+        self, text: str, target_language: str, source_language: str = "en"
+    ) -> str:
+        response = (
+            self.service.translations()
+            .list(source=source_language, target=target_language, q=[text])
+            .execute()
+        )
+        return response.get("translations").pop(0).get("translatedText")
+
+    def translate_strings(
+        self,
+        strings: t.Sequence[str],
+        target_language: str,
+        source_language: str = "en",
+    ) -> t.Generator[str, None, None]:
+        while strings:
+            response = (
+                self.service.translations()
+                .list(
+                    source=source_language,
+                    target=target_language,
+                    q=strings[: self.max_segments],
+                )
+                .execute()
+            )
+            yield from (t.get("translatedText") for t in response.get("translations"))
+            strings = strings[self.max_segments :]
 
 
 class AmazonTranslateTranslatorService(BaseTranslatorService):
@@ -104,26 +140,32 @@ class AmazonTranslateTranslatorService(BaseTranslatorService):
     https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/translate.html
     """
 
-    def __init__(self,):
-        assert boto3, '`AmazonTranslateTranslatorService` requires the `boto3` package'
+    def __init__(
+        self,
+    ):
+        try:
+            import boto3
 
-        self.service = boto3.client('translate')
+            self.service = boto3.client("translate")
+        except ImportError as ie:
+            raise ImportError(
+                _("`{service}` requires the `{package}` package").format(
+                    service=self.__class__.__name__, package="boto3"
+                )
+            ) from ie
 
-    def translate_string(self, text, target_language, source_language='en'):
-        assert isinstance(text, six.string_types), '`text` should a string literal'
+    def translate_string(
+        self, text: str, target_language: str, source_language: str = "en"
+    ) -> str:
         response = self.service.translate_text(
             Text=text,
             SourceLanguageCode=source_language,
-            TargetLanguageCode=target_language
+            TargetLanguageCode=target_language,
         )
-        return response['TranslatedText']
+        return response["TranslatedText"]
 
-    def translate_strings(self, strings, target_language, source_language='en', optimized=False):
-        assert isinstance(strings, collections.MutableSequence), \
-            '`strings` should be a sequence containing string_types'
-        translated = []
+    def translate_strings(
+        self, strings: t.Sequence[str], target_language: str, source_language="en"
+    ) -> t.Generator[str, None, None]:
         for text in strings:
-            translated.append(
-                self.translate_string(text, target_language, source_language)
-            )
-        return translated
+            yield self.translate_string(text, target_language, source_language)
