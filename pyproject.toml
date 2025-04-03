@@ -89,21 +89,28 @@ exclude = [
 ]
 
 [tool.tox]
-envlist = [
-    "dj{42}-py{39,310,311}",
-    "dj{50}-py{310,311,312}",
-    "dj{51}-py{310,311,312,313}",
-    "dj{52}-py{310,311,312,313}"
-]
-skipsdist = true
+legacy_tox_ini = """
+[tox]
+envlist = 
+    dj{42}-py{39,310,311}
+    dj{50}-py{310,311,312}
+    dj{51}-py{310,311,312,313}
+    dj{52}-py{311,312,313}
+skipsdist = True
 
-# [testenv]
-# deps = [
-#     "django-autotranslate[dev]",
-#     "dj42: Django>=4.2,<5.0",
-#     "dj50: Django>=5.0,<5.1",
-#     "dj51: Django>=5.1,<5.2",
-#     "dj52: Django>=5.2,<6.0",
-# ]
-# commands = ["pytest"]
-# usedevelop = true
+[testenv]
+changedir = {toxinidir}/tests
+commands = django-admin test autotranslate
+deps =
+    six
+    googletrans
+    polib
+    dj42: Django>=4.2,<5.0
+    dj50: Django>=5.0,<5.1
+    dj51: Django>=5.1,<5.2
+    dj52: Django>=5.2,<6.0
+setenv =
+    PYTHONPATH = {toxinidir}:{toxinidir}/tests
+    DJANGO_SETTINGS_MODULE = test_project.settings
+usedevelop = True
+"""
