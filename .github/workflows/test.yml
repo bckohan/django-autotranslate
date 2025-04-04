@@ -1,0 +1,251 @@
+name: test
+
+permissions:
+  contents: read
+
+on:
+  push:
+  pull_request:
+  workflow_call:
+  workflow_dispatch:
+    inputs:
+      debug:
+        description: 'Open ssh debug session.'
+        required: true
+        default: false
+        type: boolean
+  schedule:
+    - cron: '0 13 * * *'  # Runs at 6 am pacific every day
+
+jobs:
+
+  test-linux:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13']
+        django-version:
+          - '4.2' # LTS April 2026
+          - '5.0' # April 2025
+          - '5.1' # December 2025
+          - '5.2' # LTS April 2028
+        exclude:
+          - python-version: '3.9'
+            django-version: '5.0'
+          - python-version: '3.9'
+            django-version: '5.1'
+          - python-version: '3.9'
+            django-version: '5.2'
+          - python-version: '3.10'
+            django-version: '5.2'
+          - python-version: '3.13'
+            django-version: '4.2'
+          - python-version: '3.13'
+            django-version: '5.0'
+    env:
+      COVERAGE_FILE: linux-py${{ matrix.python-version }}-dj${{ matrix.django-version }}.coverage
+      TEST_PYTHON_VERSION: ${{ matrix.python-version }}
+      TEST_DJANGO_VERSION: ${{ matrix.django-version }}
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      id: sp
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true  
+    - name: Setup Just
+      uses: extractions/setup-just@v3
+    - name: Install Dependencies
+      run: |
+        just setup ${{ steps.sp.outputs.python-path }}
+        just test-lock "Django~=${{ matrix.django-version }}.0"
+        just install
+    - name: Install Emacs
+      if: ${{ github.event.inputs.debug == 'true' }}
+      run: |
+        sudo apt install emacs
+    - name: Setup tmate session
+      if: ${{ github.event.inputs.debug == 'true' }}
+      uses: mxschmitt/action-tmate@v3.19
+      with:
+        detached: true
+      timeout-minutes: 60
+    - name: Run Unit Tests
+      run: |
+        just test-all
+    
+    - name: Store coverage files
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.COVERAGE_FILE }}
+        path: ${{ env.COVERAGE_FILE }}
+  
+  test-macos:
+    runs-on: macos-latest
+    permissions:
+      actions: write
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.13']
+        django-version:
+          - '4.2' # LTS April 2026
+          - '5.2' # LTS April 2028
+        exclude:
+          - python-version: '3.9'
+            django-version: '5.2'
+          - python-version: '3.13'
+            django-version: '4.2'
+    env:
+      COVERAGE_FILE: macos-py${{ matrix.python-version }}-dj${{ matrix.django-version }}.coverage
+      TEST_PYTHON_VERSION: ${{ matrix.python-version }}
+      TEST_DJANGO_VERSION: ${{ matrix.django-version }}
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      id: sp
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true  
+    - name: Setup Just
+      uses: extractions/setup-just@v3
+    - name: Install Dependencies
+      run: |
+        just setup ${{ steps.sp.outputs.python-path }}
+        just test-lock "Django~=${{ matrix.django-version }}.0"
+        just install
+    - name: install-emacs-macos
+      if: ${{ github.event.inputs.debug == 'true' }}
+      run: |
+        brew install emacs
+    - name: Setup tmate session
+      if: ${{ github.event.inputs.debug == 'true' }}
+      uses: mxschmitt/action-tmate@v3.19
+      with:
+        detached: true
+      timeout-minutes: 60
+    - name: Run Unit Tests
+      run: |
+        just test-all
+    
+    - name: Store coverage files
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.COVERAGE_FILE }}
+        path: ${{ env.COVERAGE_FILE }}
+  
+  test-windows:
+    runs-on: windows-latest
+    permissions:
+      actions: write
+    defaults:
+      run:
+        shell: pwsh
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.13']
+        django-version:
+          - '4.2' # LTS April 2026
+          - '5.2' # LTS April 2028
+        exclude:
+          - python-version: '3.9'
+            django-version: '5.2'
+          - python-version: '3.13'
+            django-version: '4.2'
+    env:
+      COVERAGE_FILE: windows-py${{ matrix.python-version }}-dj${{ matrix.django-version }}.coverage
+      TEST_PYTHON_VERSION: ${{ matrix.python-version }}
+      TEST_DJANGO_VERSION: ${{ matrix.django-version }}
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      id: sp
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true      
+    - name: Setup Just
+      uses: extractions/setup-just@v3
+    - name: Install Dependencies
+      run: |
+        just setup ${{ steps.sp.outputs.python-path }}
+        just test-lock "Django~=${{ matrix.django-version }}.0"
+        just install
+    - name: install-vim-windows
+      if: ${{ github.event.inputs.debug == 'true' }}
+      uses: rhysd/action-setup-vim@v1
+    - name: Setup tmate session
+      if: ${{ github.event.inputs.debug == 'true' }}
+      uses: mxschmitt/action-tmate@v3.19
+      with:
+        detached: true
+      timeout-minutes: 60
+    - name: Run Unit Tests
+      run: |
+        just test-all
+    
+    - name: Store coverage files
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.COVERAGE_FILE }}
+        path: ${{ env.COVERAGE_FILE }}
+        
+  # coverage-combine:
+  #   needs: [test-linux, test-macos, test-windows]
+  #   runs-on: ubuntu-latest
+
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/setup-python@v5
+  #       id: sp
+  #       with:
+  #         python-version: '3.12'
+  #     - name: Install uv
+  #       uses: astral-sh/setup-uv@v5
+  #       with:
+  #         enable-cache: true
+  #     - name: Setup Just
+  #       uses: extractions/setup-just@v3
+  #     - name: Install Release Dependencies
+  #       run: |
+  #         just setup ${{ steps.sp.outputs.python-path }}
+  #         just install
+
+  #     - name: Get coverage files
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         pattern: "*.coverage"
+  #         merge-multiple: true
+  #     - run: ls -la *.coverage
+  #     - run: just coverage
+
+  #     - name: Upload coverage to Codecov
+  #       uses: codecov/codecov-action@v5
+  #       with:
+  #         token: ${{ secrets.CODECOV_TOKEN }}
+  #         files:
+  #           ./coverage.xml
