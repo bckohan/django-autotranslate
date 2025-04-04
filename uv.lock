@@ -350,7 +350,7 @@ dev = [
 requires-dist = [
     { name = "boto3", marker = "extra == 'amazon'", specifier = ">=1.37.1" },
     { name = "django", specifier = ">=4.2,<6.0" },
-    { name = "django-typer", specifier = ">=3.0.0,<3.2.0" },
+    { name = "django-typer", specifier = ">=3.1,<4.0" },
     { name = "google-api-python-client", marker = "extra == 'google'", specifier = ">=2.162.0" },
     { name = "googletrans", specifier = ">=4.0.2" },
     { name = "polib", specifier = ">=1.2.0" },
