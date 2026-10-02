@@ -42,7 +42,7 @@ def get_translator(service_path: str | None = None) -> TranslatorService:
                     "in {setting}."
                 ).format(translator=translator, setting=f"settings.{SERVICE_SETTING}")
             ) from ie
-    if translator is None or not issubclass(TranslatorService, translator):
+    if not (isinstance(translator, type) and issubclass(translator, TranslatorService)):
         raise ImproperlyConfigured(
             _(
                 "The translator service '{translator}' specified in {setting} "

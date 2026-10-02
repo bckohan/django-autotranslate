@@ -1,5 +1,5 @@
 set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
-set unstable := true
+set unstable
 set script-interpreter := ['uv', 'run', '--project', '.', '--script']
 
 export PYTHONPATH := source_directory()
@@ -16,7 +16,7 @@ manage *COMMAND:
     import shlex
     from django.core import management
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "tests.settings")
-    management.execute_from_command_line(["just manage", *shlex.split("{{COMMAND}}")])
+    management.execute_from_command_line(["just manage", *shlex.split("{{ COMMAND }}")])
 
 # install the uv package manager
 [linux]
@@ -31,7 +31,7 @@ install-uv:
 
 # setup the venv and pre-commit hooks
 setup python="python":
-    uv venv -p {{python}}
+    uv venv -p {{ python }}
     @just install-prek
 
 # install git pre-commit hooks
@@ -40,28 +40,28 @@ install-prek:
 
 # update and install development dependencies
 install *OPTS="--all-extras":
-    uv sync {{OPTS}}
+    uv sync {{ OPTS }}
 
 _install-docs:
     uv sync --no-default-groups --group docs --all-extras
 
 # run static type checking with mypy
 check-types-mypy *ENV:
-    @just run {{ENV}} --no-default-groups --all-extras --group typing mypy
+    @just run {{ ENV }} --no-default-groups --all-extras --group typing mypy
 
 # run static type checking with pyright
 check-types-pyright *ENV:
-    @just run {{ENV}} --no-default-groups --all-extras --group typing pyright
+    @just run {{ ENV }} --no-default-groups --all-extras --group typing pyright
 
 # run all static type checking
 check-types *ENV:
-    @just check-types-mypy {{ENV}}
-    @just check-types-pyright {{ENV}}
+    @just check-types-mypy {{ ENV }}
+    @just check-types-pyright {{ ENV }}
 
 # run all static type checking in an isolated environment
 check-types-isolated *ENV:
-    @just check-types-mypy {{ENV}} --exact --isolated
-    @just check-types-pyright {{ENV}} --exact --isolated
+    @just check-types-mypy {{ ENV }} --exact --isolated
+    @just check-types-pyright {{ ENV }} --exact --isolated
 
 # run package checks
 check-package:
@@ -131,7 +131,7 @@ check-docs-links: _link-check
 
 # lint the documentation
 check-docs *ENV:
-    @just run {{ENV}} --no-default-groups --group docs doc8 --ignore-path ./doc/build --max-line-length 100 -q ./doc
+    @just run {{ ENV }} --no-default-groups --group docs doc8 --ignore-path ./doc/build --max-line-length 100 -q ./doc
 
 # fetch intersphinx references for the given package
 [script]
@@ -144,9 +144,9 @@ fetch-refs LIB: _install-docs
     from sphinx.ext.intersphinx import inspect_main
     _logging.basicConfig()
     libs = runpy.run_path(Path(os.getcwd()) / "doc/source/conf.py").get("intersphinx_mapping")
-    url = libs.get("{{LIB}}", None)
+    url = libs.get("{{ LIB }}", None)
     if not url:
-        sys.exit(f"Unrecognized {{LIB}}, must be one of: {', '.join(libs.keys())}")
+        sys.exit(f"Unrecognized {{ LIB }}, must be one of: {', '.join(libs.keys())}")
     if url[1] is None:
         url = f"{url[0].rstrip('/')}/objects.inv"
     else:
@@ -155,26 +155,26 @@ fetch-refs LIB: _install-docs
 
 # lint the code
 check-lint *ENV:
-    @just run {{ENV}} --no-default-groups --group lint ruff check --select I
-    @just run {{ENV}} --no-default-groups --group lint ruff check
+    @just run {{ ENV }} --no-default-groups --group lint ruff check --select I
+    @just run {{ ENV }} --no-default-groups --group lint ruff check
 
 # check if the code needs formatting
 check-format *ENV:
-    @just run {{ENV}} --no-default-groups --group lint ruff format --check
+    @just run {{ ENV }} --no-default-groups --group lint ruff format --check
 
 # check that the readme renders
 check-readme *ENV:
-    @just run {{ENV}} --no-default-groups --group lint -m readme_renderer ./README.md -o /tmp/README.html
+    @just run {{ ENV }} --no-default-groups --group lint -m readme_renderer ./README.md -o /tmp/README.html
 
 # sort the python imports
 sort-imports *ENV:
-    @just run {{ENV}} --no-default-groups --group lint ruff check --fix --select I
+    @just run {{ ENV }} --no-default-groups --group lint ruff check --fix --select I
 
 # format the code and sort imports
 format *ENV:
-    @just sort-imports {{ENV}}
+    @just sort-imports {{ ENV }}
     just --fmt --unstable
-    @just run {{ENV}} --no-default-groups --group lint ruff format
+    @just run {{ ENV }} --no-default-groups --group lint ruff format
 
 # format the github workflow files
 format-workflows:
@@ -182,13 +182,13 @@ format-workflows:
 
 # sort imports and fix linting issues
 lint *ENV:
-    @just sort-imports {{ENV}}
-    @just run {{ENV}} --no-default-groups --group lint ruff check --fix
+    @just sort-imports {{ ENV }}
+    @just run {{ ENV }} --no-default-groups --group lint ruff check --fix
 
 # fix formatting, linting issues and import sorting
 fix *ENV:
-    @just lint {{ENV}}
-    @just format {{ENV}}
+    @just lint {{ ENV }}
+    @just format {{ ENV }}
 
 # run bandit static security analysis
 bandit:
@@ -201,32 +201,32 @@ zizmor:
 
 # run all static checks
 check *ENV:
-    @just check-lint {{ENV}}
-    @just check-format {{ENV}}
-    @just check-types {{ENV}}
+    @just check-lint {{ ENV }}
+    @just check-format {{ ENV }}
+    @just check-types {{ ENV }}
     @just check-package
-    @just check-docs {{ENV}}
-    @just check-readme {{ENV}}
+    @just check-docs {{ ENV }}
+    @just check-readme {{ ENV }}
 
 # run all checks including documentation link checking (slow)
 check-all *ENV:
-    @just check {{ENV}}
+    @just check {{ ENV }}
     @just check-docs-links
 
 # run all tests (pass --group flags for db client and django version, e.g. --group psycopg3 --group dj52)
 test-all *ENV:
-    @just run {{ENV}} --no-default-groups --exact --all-extras --group test --isolated pytest --cov-append
+    @just run {{ ENV }} --no-default-groups --exact --all-extras --group test --isolated pytest --cov-append
 
 # run specific tests (project venv)
 test *TESTS:
-    @just run --group test --no-sync pytest {{TESTS}}
+    @just run --group test --no-sync pytest {{ TESTS }}
 
 # debug a test
 debug-test *TESTS:
     @just run pytest \
       -o addopts='-ra -q' \
       -s --trace --pdbcls=IPython.terminal.debugger:Pdb \
-      --headed {{TESTS}}
+      --headed {{ TESTS }}
 
 # run the pre-commit checks
 prek:
@@ -244,7 +244,7 @@ coverage:
 
 # run the command in the virtual environment
 run +ARGS:
-    uv run {{ARGS}}
+    uv run {{ ARGS }}
 
 # validate the given version string against the lib version
 [script]
@@ -253,7 +253,7 @@ validate_version VERSION:
     import tomllib
     import autotranslate
     from packaging.version import Version
-    raw_version = "{{VERSION}}".lstrip("v")
+    raw_version = "{{ VERSION }}".lstrip("v")
     version_obj = Version(raw_version)
     assert str(version_obj) == raw_version
     assert raw_version == tomllib.load(open('pyproject.toml', 'rb'))['project']['version']
@@ -262,6 +262,6 @@ validate_version VERSION:
 
 # issue a release for the given semver string (e.g. 1.0.0)
 release VERSION: install check-all
-    @just validate_version v{{VERSION}}
-    git tag -s v{{VERSION}} -m "{{VERSION}} Release"
-    git push https://github.com/ankitpopli1891/django-autotranslate.git v{{VERSION}}
+    @just validate_version v{{ VERSION }}
+    git tag -s v{{ VERSION }} -m "{{ VERSION }} Release"
+    git push https://github.com/ankitpopli1891/django-autotranslate.git v{{ VERSION }}

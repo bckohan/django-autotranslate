@@ -154,6 +154,11 @@ addopts = [
     "--cov-report=term-missing:skip-covered",
 ]
 
+filterwarnings = [
+    # typer deprecated shell_complete, but django-typer completers use that interface
+    "ignore:.*shell_complete.*:DeprecationWarning:typer.core",
+]
+
 [tool.coverage.run]
 branch = true
 source = ["autotranslate"]

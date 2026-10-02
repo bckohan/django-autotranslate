@@ -55,14 +55,12 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
         else "LOCALE_PATHS",
     )
 
-    paths: list[Path] = []
-    apps: list[AppConfig] = []
+    locale: list[str]
     retranslate: bool = False
     set_fuzzy: bool = False
     source_language: str = "en"
 
-    to_translate: list[Path] = []
-    apps: list[AppConfig] = []
+    to_translate: list[Path]
 
     service: TranslatorService
 
@@ -73,46 +71,54 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
     def handle(
         self,
         paths: t.Annotated[
-            list[Path],
+            list[Path] | None,
             Option(
                 "--path",
                 "-p",
-                help=_(
-                    "The path(s) to the locale directories containing the .po files to "
-                    "translate."
+                help=t.cast(
+                    str,
+                    _(
+                        "The path(s) to the locale directories containing the .po "
+                        "files to translate."
+                    ),
                 ),
                 shell_complete=directories,
             ),
-        ] = paths,
+        ] = None,
         apps: t.Annotated[
-            list[AppConfig],
+            list[AppConfig] | None,
             Option(
                 "--app",
                 "-a",
-                help=_("The app(s) to translate messages for."),
+                help=t.cast(str, _("The app(s) to translate messages for.")),
                 parser=app_config,
                 shell_complete=app_labels,
             ),
-        ] = apps,
+        ] = None,
         locale: t.Annotated[
-            list[str],
+            list[str] | None,
             Option(
                 "--locale",
                 "-l",
-                help=_(
-                    "Translate the message files for the given locale(s) (e.g. pt_BR). "
-                    "By default, translations will be generated for all locales "
-                    "supported by the configured translator service."
+                help=t.cast(
+                    str,
+                    _(
+                        "Translate the message files for the given locale(s) (e.g. "
+                        "pt_BR). By default, translations will be generated for all "
+                        "locales supported by the configured translator service."
+                    ),
                 ),
                 shell_complete=languages,
             ),
-        ] = [],
+        ] = None,
         retranslate: t.Annotated[
             bool,
             Option(
                 "--retranslate",
                 "-r",
-                help=_("Re-translate messages that already have translations."),
+                help=t.cast(
+                    str, _("Re-translate messages that already have translations.")
+                ),
             ),
         ] = retranslate,
         set_fuzzy: t.Annotated[
@@ -120,7 +126,7 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
             Option(
                 "--set-fuzzy",
                 "-f",
-                help=_("Set the fuzzy flag on translated messages."),
+                help=t.cast(str, _("Set the fuzzy flag on translated messages.")),
             ),
         ] = set_fuzzy,
         source_language: t.Annotated[
@@ -128,7 +134,7 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
             Option(
                 "--source-language",
                 "-s",
-                help=_("Set the source language used for translation."),
+                help=t.cast(str, _("Set the source language used for translation.")),
                 shell_complete=languages,
             ),
         ] = source_language,
@@ -150,12 +156,12 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
             )
 
         self.service = get_translator(service)
-        self.locale = locale
+        self.locale = locale or []
         self.retranslate = retranslate
         self.set_fuzzy = set_fuzzy
         self.source_language = source_language
-        self.to_translate = paths
-        for app in apps:
+        self.to_translate = list(paths or [])
+        for app in apps or []:
             # get locale path from app directory
             # and add it to the list of paths
             self.to_translate.append(Path(app.path) / "locale")
@@ -184,16 +190,16 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
                 )
                 continue
 
-            for root, dirs, files in os.walk(directory):
-                root = Path(root)
+            for root_dir, _dirs, files in os.walk(directory):
+                root = Path(root_dir)
                 for file in files:
                     if not file.endswith(".po"):
                         # process file only
                         # if its a pot file
                         continue
 
-                    # get the target language from the parent folder name
-                    target_language = root.name
+                    # get the target language from the <lang>/LC_MESSAGES/ folder name
+                    target_language = root.parent.name
 
                     if self.locale and target_language not in self.locale:
                         self.secho(
@@ -216,7 +222,7 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
         self.secho(
             _("Translating {file} into `{target_language}`").format(
                 file=po_file,
-                target_langauge=self.language_codes.get(
+                target_language=self.language_codes.get(
                     target_language, target_language
                 ),
             ),
@@ -231,24 +237,22 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
         # in the same order on the same index
         # viz. [a, b] -> [trans_a, trans_b]
         translated_strings = self.service.translate_strings(
-            strings, target_language, self.source_language, False
+            strings, target_language, self.source_language
         )
         self.update_translations(po, translated_strings)
         po.save()
 
-    def need_translate(self, entry):
-        return not entry.obsolete and (
-            not (self.skip_translated and entry.translated())
-        )
+    def need_translate(self, entry: polib.POEntry) -> bool:
+        return not entry.obsolete and (self.retranslate or not entry.translated())
 
-    def get_strings_to_translate(self, po: polib.POFile) -> t.Iterable[str]:
+    def get_strings_to_translate(self, po: polib.POFile) -> list[str]:
         """Return list of string to translate from po file.
 
         :param po: POFile object to translate
         :return: list of string to translate
         """
         strings = []
-        for index, entry in enumerate(po):
+        for entry in po:
             if not self.need_translate(entry):
                 continue
             strings.append(self.service.humanize_placeholders(entry.msgid))
@@ -284,7 +288,7 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
                 translation = self.service.fix_translation(
                     entry.msgid_plural, translation
                 )
-                for k, v in entry.msgstr_plural.items():
+                for k in entry.msgstr_plural:
                     if k != 0:
                         entry.msgstr_plural[k] = translation
             else:
