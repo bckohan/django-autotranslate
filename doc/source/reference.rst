@@ -8,12 +8,12 @@ Reference
 
 .. automodule:: autotranslate
 
-.. _translate_messages:
+.. _autotranslate:
 
-``translate_messages``
-----------------------
+``autotranslate``
+-----------------
 
-.. autoclass:: autotranslate.management.commands.translate_messages.Command
+.. autoclass:: autotranslate.management.commands.autotranslate.Command
     :members:
 
 .. _services:

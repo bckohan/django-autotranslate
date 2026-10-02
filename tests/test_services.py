@@ -102,7 +102,7 @@ class GoogleTranslatorServiceTestCase(TestCase):
             shutil.copy(DATA_DIR / "django.po", messages / "django.po")
 
         call_command(
-            "translate_messages",
+            "autotranslate",
             "--path",
             str(locale_dir),
             "--service",

@@ -29,8 +29,8 @@ from ...services import TranslatorService
 
 class Command(TyperCommand, rich_markup_mode="markdown"):
     """
-    .. typer:: autotranslate.management.commands.translate_messages.Command:typer_app
-        :prog: django-admin translate_messages
+    .. typer:: autotranslate.management.commands.autotranslate.Command:typer_app
+        :prog: django-admin autotranslate
         :width: 80
         :show-nested:
         :convert-png: latex

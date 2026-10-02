@@ -30,7 +30,7 @@ INSTALLED_APPS = (
 ## Quick Start
 
 ```bash
-python manage.py translate_messages
+python manage.py autotranslate
 ```
 
 The command finds all the generated pot (``.po``) files under the locale paths (``LOCALE_PATHS``) specified in django project settings, and translates them automatically.
@@ -43,7 +43,7 @@ The command finds all the generated pot (``.po``) files under the locale paths (
 - ``-s, --source-language``: Override the default source language (en) used for translation
 
 ```bash
-python manage.py translate_messages -l 'de' -l 'es'
+python manage.py autotranslate -l 'de' -l 'es'
 ```
 
 ### Settings

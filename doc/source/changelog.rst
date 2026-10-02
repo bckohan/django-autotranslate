@@ -4,6 +4,12 @@
 Change Log
 ==========
 
+v2.0.0 (unreleased)
+===================
+
+* **Breaking:** the ``translate_messages`` management command has been renamed to
+  ``autotranslate``.
+
 v1.3.0 (2024-08-23)
 ===================
 

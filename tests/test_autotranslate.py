@@ -6,7 +6,7 @@ import polib
 from django.core.management import call_command
 from django.test import TestCase
 
-from autotranslate.management.commands.translate_messages import Command
+from autotranslate.management.commands.autotranslate import Command
 from autotranslate.services import TranslatorService
 
 DATA_DIR = Path(__file__).parent / "data"
@@ -118,7 +118,7 @@ class TranslateMessagesCommandTestCase(TestCase):
 
     def test_translate_all_locales(self):
         call_command(
-            "translate_messages",
+            "autotranslate",
             "--path",
             str(self.locale_dir),
             "--service",
@@ -133,7 +133,7 @@ class TranslateMessagesCommandTestCase(TestCase):
 
     def test_translate_one_locale_fuzzy(self):
         call_command(
-            "translate_messages",
+            "autotranslate",
             "--path",
             str(self.locale_dir),
             "--service",
@@ -152,7 +152,7 @@ class TranslateMessagesCommandTestCase(TestCase):
 
         with self.assertRaises(ImproperlyConfigured):
             call_command(
-                "translate_messages",
+                "autotranslate",
                 "--path",
                 str(self.locale_dir),
                 "--service",
