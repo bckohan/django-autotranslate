@@ -84,7 +84,7 @@ docs = [
     "sphinx-autobuild>=2024.10.3",
     "sphinx-tabs>=3.4.7",
     "sphinxcontrib-django>=2.5",
-    "sphinxcontrib-typer[png]>=0.5.1",
+    "sphinxcontrib-typer[png]>=0.10.0",
 ]
 dj52          = ["Django>=5.2,<6.0"]
 dj61          = ["Django>=6.1,<6.2; python_version >= '3.12'"]

@@ -22,7 +22,8 @@ class FakeGoogletransTranslator:
 
     instances: list["FakeGoogletransTranslator"] = []
 
-    def __init__(self):
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
         self.loop = None
         self.closed = False
         self.calls = 0
@@ -117,3 +118,89 @@ class GoogleTranslatorServiceTestCase(TestCase):
         self.assertEqual(1, len(FakeGoogletransTranslator.instances))
         self.assertEqual(3, FakeGoogletransTranslator.instances[0].calls)
         self.assertTrue(FakeGoogletransTranslator.instances[0].closed)
+
+
+class GoogleRetryTestCase(TestCase):
+    def setUp(self):
+        import httpx
+
+        FakeGoogletransTranslator.instances = []
+        self.failures = 0
+
+        test = self
+
+        self.error = httpx.RemoteProtocolError("Server disconnected")
+
+        class FlakyTranslator(FakeGoogletransTranslator):
+            async def translate(self, text, dest, src):
+                if test.failures:
+                    test.failures -= 1
+                    raise test.error
+                return await super().translate(text, dest, src)
+
+        for patcher in [
+            mock.patch("googletrans.Translator", FlakyTranslator),
+            mock.patch.object(GoogleTranslatorService, "retry_delay", 0),
+            mock.patch.object(GoogleTranslatorService, "rate_limit_delay", 0),
+        ]:
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_retries_with_fresh_client(self):
+        self.failures = 2
+        with GoogleTranslatorService() as service:
+            self.assertEqual("[de] City", service.translate_string("City", "de"))
+        # the original client plus one fresh client per retry
+        self.assertEqual(3, len(FakeGoogletransTranslator.instances))
+        self.assertTrue(all(tr.closed for tr in FakeGoogletransTranslator.instances))
+
+    def test_retries_outside_with_block(self):
+        self.failures = 1
+        self.assertEqual(
+            "[de] City", GoogleTranslatorService().translate_string("City", "de")
+        )
+
+    def test_gives_up_after_retries(self):
+        import httpx
+
+        self.failures = GoogleTranslatorService.retries + 1
+        with self.assertRaises(httpx.RemoteProtocolError):
+            with GoogleTranslatorService() as service:
+                service.translate_string("City", "de")
+
+    def test_retries_rejected_requests(self):
+        # googletrans raises this when Google responds with e.g. a 429
+        self.error = Exception(
+            "Unexpected status code \"429\" from ['translate.googleapis.com']"
+        )
+        self.failures = 2
+        with GoogleTranslatorService() as service:
+            self.assertEqual("[de] City", service.translate_string("City", "de"))
+
+    def test_rejected_requests_raise_after_retries(self):
+        from autotranslate.services import ServiceUnavailable
+
+        self.error = Exception('Unexpected status code "429" from []')
+        self.failures = GoogleTranslatorService.retries + 1
+        with self.assertRaises(ServiceUnavailable):
+            with GoogleTranslatorService() as service:
+                service.translate_string("City", "de")
+
+    def test_other_errors_not_retried(self):
+        self.error = ValueError("invalid destination language")
+        self.failures = 1
+        with self.assertRaises(ValueError):
+            with GoogleTranslatorService() as service:
+                service.translate_string("City", "xx")
+        self.assertEqual(1, len(FakeGoogletransTranslator.instances))
+
+
+class GoogleClientConfigTestCase(TestCase):
+    def test_client_raises_on_rejected_requests(self):
+        FakeGoogletransTranslator.instances = []
+        with mock.patch("googletrans.Translator", FakeGoogletransTranslator):
+            with GoogleTranslatorService():
+                pass
+        self.assertEqual(
+            {"raise_exception": True}, FakeGoogletransTranslator.instances[0].kwargs
+        )

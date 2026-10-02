@@ -10,6 +10,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.core.management import CommandError
 from django.utils.text import format_lazy
 from django.utils.translation import gettext_lazy as _
+from django.utils.translation import to_language
 from django_typer.completers.apps import app_labels
 from django_typer.completers.path import directories, import_paths
 from django_typer.completers.settings import languages
@@ -33,7 +34,6 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
         :width: 80
         :show-nested:
         :convert-png: latex
-        :theme: dark
     """
 
     help = format_lazy(
@@ -123,7 +123,13 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
             Option(
                 "--set-fuzzy",
                 "-f",
-                help=t.cast(str, _("Set the fuzzy flag on translated messages.")),
+                help=t.cast(
+                    str,
+                    _(
+                        "Mark machine translations as fuzzy so they are reviewed "
+                        "before use (fuzzy entries are not compiled by default)."
+                    ),
+                ),
             ),
         ] = set_fuzzy,
         source_language: t.Annotated[
@@ -144,8 +150,9 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
                     format_lazy(
                         _(
                             "The translation service to use if different than the "
-                            "configured service in settings (settings.{setting})."
+                            "configured service in settings ({settings}.{setting})."
                         ),
+                        settings="settings",
                         setting=SERVICE_SETTING,
                     ),
                 ),
@@ -209,27 +216,48 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
                     # if its a pot file
                     continue
 
-                # get the target language from the <lang>/LC_MESSAGES/ folder name
-                target_language = root.parent.name
+                # get the locale from the <locale>/LC_MESSAGES/ folder name
+                locale_name = root.parent.name
+                language = to_language(locale_name)
 
-                if self.locale and target_language not in self.locale:
+                if (
+                    self.locale
+                    and locale_name not in self.locale
+                    and language not in self.locale
+                ):
                     self.secho(
-                        _("Skipping translation for locale `{}`").format(
-                            target_language
-                        ),
+                        _("Skipping translation for locale `{}`").format(locale_name),
                         fg="yellow",
                     )
                     continue
 
-                self.translate_file(root / file, target_language)
+                self.translate_file(root / file, language)
 
     def translate_file(self, po_file: Path, target_language: str):
         """
         Translate the given pot file to the target language.
 
         :param po_file: The path to the pot file to translate
-        :param target_language: The language to translate the file into
+        :param target_language: The Django language code (e.g. pt-br) to translate
+            the file into
         """
+        service_language = self.service.service_language(target_language)
+        if service_language is None:
+            self.secho(
+                _("Skipping {file}: {service} does not support `{language}`").format(
+                    file=po_file,
+                    service=self.service.__class__.__name__,
+                    language=target_language,
+                ),
+                fg="yellow",
+            )
+            return
+
+        po = polib.pofile(po_file)
+        strings = self.get_strings_to_translate(po)
+        if not strings:
+            return
+
         self.secho(
             _("Translating {file} into `{target_language}`").format(
                 file=po_file,
@@ -240,21 +268,36 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
             fg="blue",
         )
 
-        po = polib.pofile(po_file)
-        strings = self.get_strings_to_translate(po)
-
         # translate the strings,
         # all the translated strings are returned
         # in the same order on the same index
         # viz. [a, b] -> [trans_a, trans_b]
         translated_strings = self.service.translate_strings(
-            strings, target_language, self.source_language
+            strings, service_language, self.source_language
         )
         self.update_translations(po, translated_strings)
         po.save()
 
     def need_translate(self, entry: polib.POEntry) -> bool:
-        return not entry.obsolete and (self.retranslate or not entry.translated())
+        """
+        Should the given entry be machine translated?
+
+        Entries are translated if they have no translation, or if makemessages marked
+        them fuzzy because their source string changed (it records the previous
+        msgid when it does this). Other fuzzy entries are awaiting review (e.g.
+        drafts made with --set-fuzzy) and are left alone unless --retranslate is
+        given.
+
+        :param entry: The message file entry
+        :return: True if the entry should be translated
+        """
+        if entry.obsolete:
+            return False
+        if self.retranslate:
+            return True
+        if entry.fuzzy:
+            return bool(entry.previous_msgid or entry.previous_msgid_plural)
+        return not entry.translated()
 
     def get_strings_to_translate(self, po: polib.POFile) -> list[str]:
         """Return list of string to translate from po file.
@@ -289,24 +332,59 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
                 continue
 
             if entry.msgid_plural:
+                singular = self.service.fix_translation(entry.msgid, next(translations))
+                plural = self.service.fix_translation(
+                    entry.msgid_plural, next(translations)
+                )
+                if not (
+                    self.check_translation(entry.msgid, singular)
+                    and self.check_translation(entry.msgid_plural, plural)
+                ):
+                    continue
+
                 # fill the first plural form with the entry.msgid translation
-                translation = next(translations)
-                translation = self.service.fix_translation(entry.msgid, translation)
-                entry.msgstr_plural[0] = translation
+                entry.msgstr_plural[0] = singular
 
                 # fill the rest of plural forms with the entry.msgid_plural translation
-                translation = next(translations)
-                translation = self.service.fix_translation(
-                    entry.msgid_plural, translation
-                )
                 for k in entry.msgstr_plural:
                     if k != 0:
-                        entry.msgstr_plural[k] = translation
+                        entry.msgstr_plural[k] = plural
             else:
-                translation = next(translations)
-                translation = self.service.fix_translation(entry.msgid, translation)
+                translation = self.service.fix_translation(
+                    entry.msgid, next(translations)
+                )
+                if not self.check_translation(entry.msgid, translation):
+                    continue
                 entry.msgstr = translation
 
-            # Set the 'fuzzy' flag on translation
-            if self.set_fuzzy and "fuzzy" not in entry.flags:
-                entry.flags.append("fuzzy")
+            # this is now a translation of the current source string
+            entry.previous_msgid = None
+            entry.previous_msgid_plural = None
+            entry.previous_msgctxt = None
+
+            # fuzzy entries are not compiled, so they will not be used until they
+            # have been reviewed and the flag removed
+            if self.set_fuzzy:
+                if "fuzzy" not in entry.flags:
+                    entry.flags.append("fuzzy")
+            elif "fuzzy" in entry.flags:
+                entry.flags.remove("fuzzy")
+
+    def check_translation(self, msgid: str, translation: str) -> bool:
+        """
+        Check that the translation is safe to use, warning if it is not.
+
+        :param msgid: The source message
+        :param translation: The translated message
+        :return: True if the translation may be used
+        """
+        if self.service.validate_translation(msgid, translation):
+            return True
+        self.secho(
+            _(
+                "Discarding translation with mismatched placeholders: "
+                "{msgid!r} -> {translation!r}"
+            ).format(msgid=msgid, translation=translation),
+            fg="yellow",
+        )
+        return False

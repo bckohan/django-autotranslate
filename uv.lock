@@ -901,7 +901,7 @@ dev = [
     { name = "sphinx-autobuild", specifier = ">=2024.10.3" },
     { name = "sphinx-tabs", specifier = ">=3.4.7" },
     { name = "sphinxcontrib-django", specifier = ">=2.5" },
-    { name = "sphinxcontrib-typer", extras = ["png"], specifier = ">=0.5.1" },
+    { name = "sphinxcontrib-typer", extras = ["png"], specifier = ">=0.10.0" },
     { name = "tomlkit", specifier = ">=0.13.3" },
 ]
 dj52 = [{ name = "django", specifier = ">=5.2,<6.0" }]
@@ -914,7 +914,7 @@ docs = [
     { name = "sphinx-autobuild", specifier = ">=2024.10.3" },
     { name = "sphinx-tabs", specifier = ">=3.4.7" },
     { name = "sphinxcontrib-django", specifier = ">=2.5" },
-    { name = "sphinxcontrib-typer", extras = ["png"], specifier = ">=0.5.1" },
+    { name = "sphinxcontrib-typer", extras = ["png"], specifier = ">=0.10.0" },
 ]
 lint = [
     { name = "bandit", extras = ["toml", "sarif"], specifier = ">=1.7.10" },

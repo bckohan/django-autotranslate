@@ -1,5 +1,6 @@
 import shutil
 import tempfile
+from unittest import mock
 from pathlib import Path
 
 import polib
@@ -158,3 +159,226 @@ class TranslateMessagesCommandTestCase(TestCase):
                 "--service",
                 "autotranslate.config.language_codes",
             )
+
+
+class BracePlaceholderTestCase(TestCase):
+    def setUp(self):
+        self.service = TranslatorService()
+
+    def test_humanize_brace_placeholders(self):
+        humanize = self.service.humanize_placeholders
+        self.assertEqual("foo __name__ bar", humanize("foo {name} bar"))
+        self.assertEqual("foo __item__ bar", humanize("foo {} bar"))
+        self.assertEqual("{{literal}}", humanize("{{literal}}"))
+
+    def test_restore_named_placeholders_by_name(self):
+        # translations may reorder named placeholders
+        self.assertEqual(
+            "{target} から {file} へ",
+            self.service.restore_placeholders(
+                "Translating {file} into {target}", "__target__ から __file__ へ"
+            ),
+        )
+        self.assertEqual(
+            "%(b)s y %(a)s",
+            self.service.restore_placeholders("%(a)s and %(b)s", "__b__ y __a__"),
+        )
+
+    def test_validate_translation(self):
+        validate = self.service.validate_translation
+        self.assertTrue(validate("{file} into {lang}", "{lang} から {file}"))
+        self.assertFalse(validate("{file} into {lang}", "{Datei} in {lang}"))
+        self.assertFalse(validate("%(name)s saved", "guardado"))
+        self.assertTrue(validate("No placeholders", "Sin marcadores"))
+
+
+class GoogleLanguageMapTestCase(TestCase):
+    def test_service_language(self):
+        from autotranslate.services import GoogleTranslatorService
+
+        service = GoogleTranslatorService()
+        self.assertEqual("de", service.service_language("de"))
+        self.assertEqual("pt", service.service_language("pt-br"))
+        self.assertEqual("zh-cn", service.service_language("zh-hans"))
+        self.assertEqual("zh-tw", service.service_language("zh-hant"))
+        self.assertEqual("no", service.service_language("nb"))
+        self.assertIsNone(service.service_language("sr-latn"))
+        self.assertIsNone(service.service_language("ia"))
+
+
+class LocaleHandlingTestCase(TestCase):
+    service = f"{__name__}.FakeTranslatorService"
+
+    def setUp(self):
+        self.locale_dir = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.locale_dir)
+
+    def make_po(self, locale, entries):
+        messages = self.locale_dir / locale / "LC_MESSAGES"
+        messages.mkdir(parents=True)
+        po = polib.POFile()
+        for msgid in entries:
+            po.append(polib.POEntry(msgid=msgid, msgstr=""))
+        po.save(str(messages / "django.po"))
+
+    def read_po(self, locale):
+        return polib.pofile(str(self.locale_dir / locale / "LC_MESSAGES" / "django.po"))
+
+    def translate(self, *args):
+        call_command(
+            "autotranslate",
+            "--path",
+            str(self.locale_dir),
+            "--service",
+            self.service,
+            *args,
+        )
+
+    def test_locale_folder_converted_to_language_code(self):
+        self.make_po("pt_BR", ["Hello"])
+        self.translate()
+        self.assertEqual("[pt-br] HELLO", self.read_po("pt_BR")[0].msgstr)
+
+    def test_locale_filter_accepts_locale_or_language(self):
+        for locale_arg in ["pt-br", "pt_BR"]:
+            with self.subTest(locale_arg=locale_arg):
+                shutil.rmtree(self.locale_dir)
+                self.make_po("pt_BR", ["Hello"])
+                self.make_po("de", ["Hello"])
+                self.translate("-l", locale_arg)
+                self.assertEqual("[pt-br] HELLO", self.read_po("pt_BR")[0].msgstr)
+                self.assertEqual("", self.read_po("de")[0].msgstr)
+
+    def test_unsupported_language_skipped(self):
+        self.make_po("ia", ["Hello"])
+        self.make_po("de", ["Hello"])
+        with mock.patch.object(
+            FakeTranslatorService,
+            "service_language",
+            lambda self, language: None if language == "ia" else language,
+        ):
+            self.translate()
+        self.assertEqual("", self.read_po("ia")[0].msgstr)
+        self.assertEqual("[de] HELLO", self.read_po("de")[0].msgstr)
+
+    def test_mismatched_placeholders_discarded(self):
+        # without humanizing, FakeTranslatorService upper-cases the placeholder names
+        self.make_po("de", ["Hello {name}", "Hello %(name)s", "Plain"])
+        with mock.patch.object(
+            FakeTranslatorService, "humanize_placeholders", lambda self, msgid: msgid
+        ):
+            self.translate()
+        po = self.read_po("de")
+        self.assertEqual("", po[0].msgstr)
+        self.assertEqual("", po[1].msgstr)
+        self.assertEqual("[de] PLAIN", po[2].msgstr)
+
+
+class FuzzyHandlingTestCase(TestCase):
+    """
+    Entry states:
+        empty           - no translation
+        changed         - makemessages marked it fuzzy because the source changed
+        pending review  - fuzzy without a previous msgid (e.g. a --set-fuzzy draft)
+        translated      - translated and not fuzzy
+    """
+
+    service = f"{__name__}.FakeTranslatorService"
+
+    def setUp(self):
+        self.locale_dir = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.locale_dir)
+        self.po_path = self.locale_dir / "de" / "LC_MESSAGES" / "django.po"
+        self.po_path.parent.mkdir(parents=True)
+        po = polib.POFile()
+        po.append(polib.POEntry(msgid="empty", msgstr=""))
+        po.append(
+            polib.POEntry(
+                msgid="changed new",
+                msgstr="old translation",
+                flags=["fuzzy", "python-format"],
+                previous_msgid="changed old",
+            )
+        )
+        po.append(
+            polib.POEntry(msgid="pending review", msgstr="draft", flags=["fuzzy"])
+        )
+        po.append(polib.POEntry(msgid="translated", msgstr="done"))
+        po.append(
+            polib.POEntry(
+                msgid="plural changed",
+                msgid_plural="plurals changed",
+                msgstr_plural={0: "old", 1: "olds"},
+                flags=["fuzzy"],
+                previous_msgid="plural old",
+                previous_msgid_plural="plurals old",
+            )
+        )
+        po.save(str(self.po_path))
+
+    def translate(self, *args):
+        call_command(
+            "autotranslate",
+            "--path",
+            str(self.locale_dir),
+            "--service",
+            self.service,
+            *args,
+        )
+        return {entry.msgid: entry for entry in polib.pofile(str(self.po_path))}
+
+    def assert_shipped(self, entry, translation):
+        self.assertEqual(translation, entry.msgstr)
+        self.assertNotIn("fuzzy", entry.flags)
+        self.assertIsNone(entry.previous_msgid)
+
+    def assert_for_review(self, entry, translation):
+        self.assertEqual(translation, entry.msgstr)
+        self.assertIn("fuzzy", entry.flags)
+        self.assertIsNone(entry.previous_msgid)
+
+    def test_default(self):
+        entries = self.translate()
+        self.assert_shipped(entries["empty"], "[de] EMPTY")
+        self.assert_shipped(entries["changed new"], "[de] CHANGED NEW")
+        # other flags are preserved
+        self.assertIn("python-format", entries["changed new"].flags)
+        self.assertEqual("draft", entries["pending review"].msgstr)
+        self.assertIn("fuzzy", entries["pending review"].flags)
+        self.assertEqual("done", entries["translated"].msgstr)
+
+        plural = entries["plural changed"]
+        self.assertEqual(
+            {0: "[de] PLURAL CHANGED", 1: "[de] PLURALS CHANGED"}, plural.msgstr_plural
+        )
+        self.assertNotIn("fuzzy", plural.flags)
+        self.assertIsNone(plural.previous_msgid)
+        self.assertIsNone(plural.previous_msgid_plural)
+
+    def test_set_fuzzy(self):
+        entries = self.translate("--set-fuzzy")
+        self.assert_for_review(entries["empty"], "[de] EMPTY")
+        self.assert_for_review(entries["changed new"], "[de] CHANGED NEW")
+        self.assertEqual("draft", entries["pending review"].msgstr)
+        self.assertEqual("done", entries["translated"].msgstr)
+        self.assertNotIn("fuzzy", entries["translated"].flags)
+
+    def test_drafts_not_retranslated(self):
+        self.translate("--set-fuzzy")
+        # a second run leaves the drafts made by the first one alone
+        with mock.patch.object(
+            FakeTranslatorService, "translate_strings"
+        ) as translate_strings:
+            entries = self.translate("--set-fuzzy")
+        translate_strings.assert_not_called()
+        self.assert_for_review(entries["empty"], "[de] EMPTY")
+
+    def test_retranslate(self):
+        entries = self.translate("--retranslate")
+        for msgid in ["empty", "changed new", "pending review", "translated"]:
+            self.assert_shipped(entries[msgid], f"[de] {msgid.upper()}")
+
+    def test_retranslate_set_fuzzy(self):
+        entries = self.translate("--retranslate", "--set-fuzzy")
+        for msgid in ["empty", "changed new", "pending review", "translated"]:
+            self.assert_for_review(entries[msgid], f"[de] {msgid.upper()}")

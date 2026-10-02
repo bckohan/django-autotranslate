@@ -54,6 +54,8 @@ cover/
 # Translations
 *.mo
 *.pot
+# ship this app's compiled translations
+!src/autotranslate/locale/**/*.mo
 
 # Django stuff:
 *.log

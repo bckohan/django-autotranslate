@@ -9,6 +9,9 @@ v2.0.0 (unreleased)
 
 * **Breaking:** the ``translate_messages`` management command has been renamed to
   ``autotranslate``.
+* Messages whose source string changed (marked fuzzy by ``makemessages``) are now
+  retranslated, and fuzzy entries awaiting review are no longer overwritten.
+  ``--set-fuzzy`` marks the new machine translations for review.
 
 v1.3.0 (2024-08-23)
 ===================

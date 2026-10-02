@@ -1,10 +1,32 @@
 import asyncio
+import contextlib
 import re
+import time
 import typing as t
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.utils.translation import gettext as _
+
+# matches printf style (%s, %d, %(name)s) and brace style ({}, {name}) placeholders
+PLACEHOLDER = r"%(?:\((\w+)\))?([sd])|(?<!\{)\{(\w*)\}(?!\})"
+
+
+def placeholders(text: str) -> list[str]:
+    """
+    Return the placeholders found in the given message, in order.
+
+    :param text: The message to search for placeholders
+    :return: The placeholders (e.g. ``%(name)s`` or ``{name}``) in the message
+    """
+    return [match.group(0) for match in re.finditer(PLACEHOLDER, text)]
+
+
+class ServiceUnavailable(Exception):
+    """
+    Raised when a translation service refuses or fails to fulfil a request (e.g. it
+    is rate limiting us).
+    """
 
 
 class TranslatorService:
@@ -25,6 +47,17 @@ class TranslatorService:
         Acquire any resources the service needs for the duration of the block.
         """
         return self
+
+    def service_language(self, language: str) -> str | None:
+        """
+        Map a Django language code (e.g. ``pt-br``) to the code this service uses
+        for that language.
+
+        :param language: The Django language code
+        :return: The service's code for the language, or None if the service does
+            not support the language.
+        """
+        return language
 
     def __exit__(self, exc_type, exc_value, traceback) -> None:
         """
@@ -61,31 +94,53 @@ class TranslatorService:
         """Convert placeholders to the (google translate) service friendly form.
 
         %(name)s -> __name__
-        %s       -> __item__
+        {name}   -> __name__
+        %s, {}   -> __item__
         %d       -> __number__
         """
-        return re.sub(
-            r"%(?:\((\w+)\))?([sd])",
-            lambda match: "__{}__".format(
-                match.group(1).lower()
-                if match.group(1)
-                else "number"
-                if match.group(2) == "d"
-                else "item"
-            ),
-            msgid,
-        )
+
+        def humanize(match):
+            name = match.group(1) or match.group(3)
+            if name:
+                return f"__{name.lower()}__"
+            return "__number__" if match.group(2) == "d" else "__item__"
+
+        return re.sub(PLACEHOLDER, humanize, msgid)
 
     def restore_placeholders(self, msgid, translation):
-        """Restore placeholders in the translated message."""
-        placehoders = re.findall(r"(\s*)(%(?:\(\w+\))?[sd])(\s*)", msgid)
-        return re.sub(
-            r"(\s*)(__[\w]+?__)(\s*)",
-            lambda matches: (
-                f"{placehoders[0][0]}{placehoders[0][1]}{placehoders.pop(0)[2]}"
-            ),
-            translation,
-        )
+        """
+        Restore placeholders in the translated message. Named placeholders are
+        restored by name because translations may reorder them, any others are
+        restored in the order they appear in the msgid.
+        """
+        # (placeholder, lower case name) - groups: 1 printf name, 3 brace name
+        remaining = [
+            (match.group(0), (match.group(1) or match.group(3) or "").lower())
+            for match in re.finditer(PLACEHOLDER, msgid)
+        ]
+
+        def restore(match):
+            if not remaining:
+                return match.group(0)
+            token = match.group(0)[2:-2].lower()
+            index = next(
+                (idx for idx, ph in enumerate(remaining) if ph[1] and ph[1] == token),
+                0,
+            )
+            return remaining.pop(index)[0]
+
+        return re.sub(r"__\w+?__", restore, translation)
+
+    def validate_translation(self, msgid: str, translation: str) -> bool:
+        """
+        Check that the translation contains exactly the same placeholders as the
+        msgid. Translations that fail this check would break string formatting.
+
+        :param msgid: The source message
+        :param translation: The translated message
+        :return: True if the translation's placeholders match the msgid's
+        """
+        return sorted(placeholders(msgid)) == sorted(placeholders(translation))
 
     def fix_translation(self, msgid, translation):
         # Google Translate removes a lot of formatting, these are the fixes:
@@ -97,7 +152,7 @@ class TranslatorService:
         if msgid.endswith("\n") and not translation.endswith("\n"):
             translation += "\n"
 
-        # Remove spaces that have been placed between %(id) tags
+        # Restore the placeholders that were humanized for translation
         translation = self.restore_placeholders(msgid, translation)
         return translation
 
@@ -113,11 +168,55 @@ class GoogleTranslatorService(TranslatorService):
     _runner: asyncio.Runner | None = None
     _translator: t.Any = None
 
+    # how many times to retry a request that fails with a network error, and the
+    # delay in seconds before the first retry (doubled for each subsequent retry)
+    retries: int = 3
+    retry_delay: float = 1.0
+    # the delay in seconds before the first retry when Google rejects a request,
+    # usually because we are being rate limited (doubled for each retry)
+    rate_limit_delay: float = 30.0
+
+    # Django language codes that do not map directly onto a Google language code.
+    # None marks languages Google does not support (e.g. Google's Serbian is
+    # Cyrillic only, so it cannot be used for sr-latn).
+    language_map: t.ClassVar[dict[str, str | None]] = {
+        "zh-hans": "zh-cn",
+        "zh-hant": "zh-tw",
+        "nb": "no",
+        "sr-latn": None,
+    }
+
+    def service_language(self, language: str) -> str | None:
+        import googletrans
+
+        language = language.lower()
+        if language in self.language_map:
+            return self.language_map[language]
+        if language in googletrans.LANGUAGES:
+            return language
+        # fall back to the base language for regional variants (e.g. pt-br -> pt)
+        base = language.split("-")[0]
+        return base if base in googletrans.LANGUAGES else None
+
     @staticmethod
     async def _open_translator():
         import googletrans
 
-        return await googletrans.Translator().__aenter__()
+        # by default googletrans silently returns the untranslated text when Google
+        # rejects a request, which would write the source text as the translation
+        return await googletrans.Translator(raise_exception=True).__aenter__()
+
+    @staticmethod
+    async def _call(translator, text, target_language: str, source_language: str):
+        try:
+            return await translator.translate(
+                text, dest=target_language, src=source_language
+            )
+        except Exception as err:
+            # googletrans raises a bare Exception when Google rejects a request
+            if str(err).startswith("Unexpected status code"):
+                raise ServiceUnavailable(str(err)) from err
+            raise
 
     def __enter__(self) -> t.Self:
         self._runner = asyncio.Runner()
@@ -140,19 +239,48 @@ class GoogleTranslatorService(TranslatorService):
             self._translator = None
 
     def _translate(self, text, target_language: str, source_language: str):
+        import httpx
+
+        # Google drops long-lived connections and throttles bursts of requests, so
+        # retry these failures with a fresh client and an increasing delay
+        attempt = 0
+        while True:
+            try:
+                return self._translate_once(text, target_language, source_language)
+            except (httpx.TransportError, ServiceUnavailable) as err:
+                if attempt >= self.retries:
+                    raise
+                delay = (
+                    self.rate_limit_delay
+                    if isinstance(err, ServiceUnavailable)
+                    else self.retry_delay
+                )
+                time.sleep(delay * 2**attempt)
+                attempt += 1
+                if self._runner is not None:
+                    self._reopen_translator()
+
+    def _reopen_translator(self):
+        import httpx
+
+        assert self._runner is not None
+        # the old connection is already broken, so errors closing it don't matter
+        with contextlib.suppress(httpx.TransportError):
+            self._runner.run(self._translator.__aexit__(None, None, None))
+        self._translator = self._runner.run(self._open_translator())
+
+    def _translate_once(self, text, target_language: str, source_language: str):
         if self._runner is not None:
             return self._runner.run(
-                self._translator.translate(
-                    text, dest=target_language, src=source_language
-                )
+                self._call(self._translator, text, target_language, source_language)
             )
 
         # not in a with block - use a single-use client and event loop
         async def translate_once():
             translator = await self._open_translator()
             try:
-                return await translator.translate(
-                    text, dest=target_language, src=source_language
+                return await self._call(
+                    translator, text, target_language, source_language
                 )
             finally:
                 await translator.__aexit__(None, None, None)

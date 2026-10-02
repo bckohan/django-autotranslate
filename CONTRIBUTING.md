@@ -150,6 +150,7 @@ setup python="python"        # setup the venv and pre-commit hooks
 sort-imports *ENV            # sort the python imports
 test *TESTS                  # run specific tests (project venv)
 test-all *ENV                # run all tests (pass django version, e.g. --group dj52)
+translate *OPTS              # machine translate this app's messages into all languages Django supports (free google)
 validate_version VERSION     # validate the given version string against the lib version
 zizmor                       # run zizmor security analysis of CI
 ```
