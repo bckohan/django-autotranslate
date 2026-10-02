@@ -1,5 +1,3 @@
-from importlib.util import find_spec
-
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.utils.module_loading import import_string
@@ -7,7 +5,6 @@ from django.utils.translation import gettext as _
 
 from .services import TranslatorService
 
-RICH_INSTALLED = find_spec("rich") is not None
 SERVICE_SETTING = "AUTOTRANSLATE_SERVICE"
 DEFAULT_SERVICE = "autotranslate.services.GoogleTranslatorService"
 

@@ -18,7 +18,6 @@ from django_typer.parsers.apps import app_config
 from typer import Option
 
 from ...config import (
-    RICH_INSTALLED,
     SERVICE_SETTING,
     get_service_import_path,
     get_translator,
@@ -46,15 +45,11 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
         makemessages=(
             "[makemessages]"
             "(https://docs.djangoproject.com/en/stable/ref/django-admin/#django-admin-makemessages)"
-        )
-        if RICH_INSTALLED
-        else "makemessages",
+        ),
         locale_paths=(
             "[LOCALE_PATHS]"
             "(https://docs.djangoproject.com/en/stable/ref/settings/#locale-paths)"
-        )
-        if RICH_INSTALLED
-        else "LOCALE_PATHS",
+        ),
     )
 
     locale: list[str]
