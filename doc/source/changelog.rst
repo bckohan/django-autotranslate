@@ -12,6 +12,8 @@ v2.0.0 (unreleased)
 * Messages whose source string changed (marked fuzzy by ``makemessages``) are now
   retranslated, and fuzzy entries awaiting review are no longer overwritten.
   ``--set-fuzzy`` marks the new machine translations for review.
+* Added an optional progress bar (``--progress/--no-progress``), install the
+  ``progress`` extra to use it.
 
 v1.3.0 (2024-08-23)
 ===================

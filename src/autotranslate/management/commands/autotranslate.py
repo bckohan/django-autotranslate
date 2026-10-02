@@ -1,6 +1,9 @@
 import os
+import sys
 import typing as t
+from contextlib import contextmanager
 from functools import cached_property
+from importlib.util import find_spec
 from pathlib import Path
 
 import polib
@@ -25,6 +28,19 @@ from ...config import (
     language_codes,
 )
 from ...services import TranslatorService
+
+
+class MessageFile(t.NamedTuple):
+    """A message file with entries that need translating."""
+
+    path: Path
+    language: str
+    """The Django language code (e.g. pt-br)"""
+    service_language: str
+    """The translation service's code for the language"""
+    po: polib.POFile
+    strings: list[str]
+    """The (humanized) strings to translate"""
 
 
 class Command(TyperCommand, rich_markup_mode="markdown"):
@@ -60,6 +76,10 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
     to_translate: list[Path]
 
     service: TranslatorService
+    show_progress: bool = False
+    # the active tqdm progress bars, if any
+    progress: t.Any = None
+    language_progress: t.Any = None
 
     @cached_property
     def language_codes(self) -> dict[str, str]:
@@ -159,6 +179,20 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
                 shell_complete=import_paths,
             ),
         ] = get_service_import_path(),
+        progress: t.Annotated[
+            bool | None,
+            Option(
+                "--progress/--no-progress",
+                help=t.cast(
+                    str,
+                    _(
+                        "Show a progress bar (requires tqdm). By default the progress "
+                        "bar is shown if tqdm is installed and the output is a "
+                        "terminal."
+                    ),
+                ),
+            ),
+        ] = None,
     ):
         if not getattr(settings, "USE_I18N", False):
             raise ImproperlyConfigured(
@@ -166,6 +200,16 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
             )
 
         self.service = get_translator(service)
+        tqdm_installed = find_spec("tqdm") is not None
+        if progress and not tqdm_installed:
+            raise CommandError(
+                _("{option} requires the {package} package.").format(
+                    option="--progress", package="tqdm"
+                )
+            )
+        self.show_progress = tqdm_installed and (
+            progress if progress is not None else sys.stderr.isatty()
+        )
         self.locale = locale or []
         self.retranslate = retranslate
         self.set_fuzzy = set_fuzzy
@@ -192,17 +236,97 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
         # use the service as a context manager so it can reuse resources (e.g.
         # network clients) across all of the files we translate
         with self.service:
-            for directory in self.to_translate:
-                self.translate_directory(directory)
+            message_files = [
+                message_file
+                for directory in self.to_translate
+                for message_file in self.find_message_files(directory)
+            ]
+            # a language may have more than one message file (e.g. djangojs.po)
+            by_language: dict[str, list[MessageFile]] = {}
+            for message_file in message_files:
+                by_language.setdefault(message_file.language, []).append(message_file)
 
-    def translate_directory(self, directory: Path):
+            with self.progress_bar(sum(len(mf.strings) for mf in message_files)):
+                for language, files in by_language.items():
+                    with self.language_progress_bar(
+                        language, sum(len(mf.strings) for mf in files)
+                    ):
+                        for message_file in files:
+                            self.translate_file(message_file)
+
+    @contextmanager
+    def progress_bar(self, total: int) -> t.Iterator[None]:
         """
-        Translate all of the message files found under the given locale directory.
+        Show a progress bar of all the strings translated while in this context, if
+        progress bars are enabled.
+
+        :param total: The total number of strings that will be translated
+        """
+        if not (self.show_progress and total):
+            yield
+            return
+
+        from tqdm import tqdm
+
+        with tqdm(
+            total=total, desc=str(_("Total")), unit=str(_("strings")), position=0
+        ) as self.progress:
+            try:
+                yield
+            finally:
+                self.progress = None
+
+    @contextmanager
+    def language_progress_bar(self, language: str, total: int) -> t.Iterator[None]:
+        """
+        Show a progress bar of the strings translated for a language beneath the
+        total progress bar, while in this context. The bar is removed when the
+        language is finished.
+
+        :param language: The Django language code being translated
+        :param total: The number of strings that will be translated for the language
+        """
+        if self.progress is None:
+            yield
+            return
+
+        from tqdm import tqdm
+
+        with tqdm(
+            total=total,
+            desc=str(self.language_codes.get(language, language)),
+            unit=str(_("strings")),
+            position=1,
+            leave=False,
+        ) as self.language_progress:
+            try:
+                yield
+            finally:
+                self.language_progress = None
+
+    def message(self, message, **style):
+        """
+        Write a message to the console without disrupting the progress bar.
+
+        :param message: The message to write
+        :param style: The style parameters to pass to secho
+        """
+        if self.progress is None:
+            self.secho(message, **style)
+        else:
+            with self.progress.external_write_mode():
+                self.secho(message, **style)
+
+    def find_message_files(self, directory: Path) -> t.Iterator[MessageFile]:
+        """
+        Find the message files under the given locale directory that have entries
+        that need translating.
 
         :param directory: The locale directory to search for message files
+        :yield: The message files to translate
         """
         if not directory.exists():
-            self.secho(
+            self.message(
                 _("Directory `{}` does not exist.").format(directory),
                 fg="red",
             )
@@ -225,58 +349,74 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
                     and locale_name not in self.locale
                     and language not in self.locale
                 ):
-                    self.secho(
+                    self.message(
                         _("Skipping translation for locale `{}`").format(locale_name),
                         fg="yellow",
                     )
                     continue
 
-                self.translate_file(root / file, language)
+                po_file = root / file
+                service_language = self.service.service_language(language)
+                if service_language is None:
+                    self.message(
+                        _(
+                            "Skipping {file}: {service} does not support `{language}`"
+                        ).format(
+                            file=po_file,
+                            service=self.service.__class__.__name__,
+                            language=language,
+                        ),
+                        fg="yellow",
+                    )
+                    continue
 
-    def translate_file(self, po_file: Path, target_language: str):
-        """
-        Translate the given pot file to the target language.
+                po = polib.pofile(po_file)
+                strings = self.get_strings_to_translate(po)
+                if strings:
+                    yield MessageFile(po_file, language, service_language, po, strings)
 
-        :param po_file: The path to the pot file to translate
-        :param target_language: The Django language code (e.g. pt-br) to translate
-            the file into
+    def translate_file(self, message_file: MessageFile):
         """
-        service_language = self.service.service_language(target_language)
-        if service_language is None:
+        Translate the given message file and save it.
+
+        :param message_file: The message file to translate
+        """
+        # when shown, the progress bars show which language is being translated
+        if self.progress is None:
             self.secho(
-                _("Skipping {file}: {service} does not support `{language}`").format(
-                    file=po_file,
-                    service=self.service.__class__.__name__,
-                    language=target_language,
+                _("Translating {file} into `{target_language}`").format(
+                    file=message_file.path,
+                    target_language=self.language_codes.get(
+                        message_file.language, message_file.language
+                    ),
                 ),
-                fg="yellow",
+                fg="blue",
             )
-            return
-
-        po = polib.pofile(po_file)
-        strings = self.get_strings_to_translate(po)
-        if not strings:
-            return
-
-        self.secho(
-            _("Translating {file} into `{target_language}`").format(
-                file=po_file,
-                target_language=self.language_codes.get(
-                    target_language, target_language
-                ),
-            ),
-            fg="blue",
-        )
 
         # translate the strings,
         # all the translated strings are returned
         # in the same order on the same index
         # viz. [a, b] -> [trans_a, trans_b]
         translated_strings = self.service.translate_strings(
-            strings, service_language, self.source_language
+            message_file.strings, message_file.service_language, self.source_language
         )
-        self.update_translations(po, translated_strings)
-        po.save()
+        self.update_translations(message_file.po, self.track(translated_strings))
+        message_file.po.save()
+
+    def track(self, translated_strings: t.Iterable[str]) -> t.Iterator[str]:
+        """
+        Advance the progress bars as translated strings are consumed.
+
+        :param translated_strings: The translated strings
+        :yield: The translated strings
+        """
+        for translated in translated_strings:
+            # count each string when the service returns it - updating after the
+            # yield would miss the last string, which is never followed by a next()
+            for bar in [self.progress, self.language_progress]:
+                if bar is not None:
+                    bar.update(1)
+            yield translated
 
     def need_translate(self, entry: polib.POEntry) -> bool:
         """
@@ -380,7 +520,7 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
         """
         if self.service.validate_translation(msgid, translation):
             return True
-        self.secho(
+        self.message(
             _(
                 "Discarding translation with mismatched placeholders: "
                 "{msgid!r} -> {translation!r}"

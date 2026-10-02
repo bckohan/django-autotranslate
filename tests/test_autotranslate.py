@@ -382,3 +382,100 @@ class FuzzyHandlingTestCase(TestCase):
         entries = self.translate("--retranslate", "--set-fuzzy")
         for msgid in ["empty", "changed new", "pending review", "translated"]:
             self.assert_for_review(entries[msgid], f"[de] {msgid.upper()}")
+
+
+class ProgressBarTestCase(TestCase):
+    service = f"{__name__}.FakeTranslatorService"
+
+    def setUp(self):
+        self.locale_dir = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.locale_dir)
+        for lang in ["de", "es"]:
+            messages = self.locale_dir / lang / "LC_MESSAGES"
+            messages.mkdir(parents=True)
+            shutil.copy(DATA_DIR / "django.po", messages / "django.po")
+
+    def translate(self, *args, stderr=None):
+        import contextlib
+        import io
+
+        stdout = io.StringIO()
+        stderr = stderr or io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            call_command(
+                "autotranslate",
+                "--path",
+                str(self.locale_dir),
+                "--service",
+                self.service,
+                *args,
+                stdout=stdout,
+            )
+        return stdout.getvalue(), stderr.getvalue()
+
+    def test_progress(self):
+        stdout, stderr = self.translate("--progress")
+        # 3 strings per file (Location, City, Cities) x 2 files
+        self.assertIn("Total: 100%", stderr)
+        self.assertIn("6/6", stderr)
+        # a bar for each language beneath the total
+        self.assertIn("German:   0%", stderr)
+        self.assertIn("Spanish:   0%", stderr)
+        # the per file messages are replaced by the progress bar
+        self.assertNotIn("Translating", stdout)
+        po = polib.pofile(str(self.locale_dir / "es" / "LC_MESSAGES" / "django.po"))
+        self.assertEqual("[es] LOCATION", po[0].msgstr)
+
+    def test_no_progress(self):
+        stdout, stderr = self.translate("--no-progress")
+        self.assertNotIn("%", stderr)
+        self.assertEqual(2, stdout.count("Translating"))
+
+    def test_default_progress_follows_terminal(self):
+        import io
+
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        _, stderr = self.translate()
+        self.assertNotIn("%", stderr)
+
+        _, stderr = self.translate("--retranslate", stderr=Terminal())
+        self.assertIn("100%", stderr)
+
+    def test_progress_requires_tqdm(self):
+        from django.core.management import CommandError
+
+        with mock.patch(
+            "autotranslate.management.commands.autotranslate.find_spec",
+            return_value=None,
+        ):
+            with self.assertRaisesMessage(CommandError, "tqdm"):
+                self.translate("--progress")
+            # without tqdm the default is no progress bar
+            stdout, stderr = self.translate()
+        self.assertNotIn("%", stderr)
+        self.assertEqual(2, stdout.count("Translating"))
+
+    def test_messages_with_progress(self):
+        # messages written while the bar is shown still reach the output
+        shutil.rmtree(self.locale_dir / "es")
+        with mock.patch.object(
+            FakeTranslatorService, "translate_strings", lambda *args: iter(["%s"] * 3)
+        ):
+            stdout, stderr = self.translate("--progress")
+        self.assertIn("Discarding translation with mismatched placeholders", stdout)
+        self.assertIn("100%", stderr)
+
+    def test_language_bar_covers_all_language_files(self):
+        shutil.copy(
+            DATA_DIR / "django.po",
+            self.locale_dir / "de" / "LC_MESSAGES" / "djangojs.po",
+        )
+        _, stderr = self.translate("--progress")
+        self.assertIn("Total: 100%", stderr)
+        self.assertIn("9/9", stderr)
+        # one bar for both of the German files
+        self.assertEqual(1, stderr.count("German:   0%"))
+        self.assertIn("0/6", stderr)
