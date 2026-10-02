@@ -4,7 +4,6 @@ import re
 import time
 import typing as t
 
-from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.utils.translation import gettext as _
 
@@ -32,6 +31,10 @@ class ServiceUnavailable(Exception):
 class TranslatorService:
     """
     Defines the base methods that should be implemented
+
+    Services are configured by the ``OPTIONS`` in
+    ``settings.AUTOTRANSLATE_SERVICE``, which are passed to the service's
+    constructor as keyword arguments.
 
     Services are also context managers. Callers that make multiple translation
     calls should use the service in a ``with`` block so that services that hold
@@ -179,12 +182,40 @@ class GoogleTranslatorService(TranslatorService):
     # Django language codes that do not map directly onto a Google language code.
     # None marks languages Google does not support (e.g. Google's Serbian is
     # Cyrillic only, so it cannot be used for sr-latn).
-    language_map: t.ClassVar[dict[str, str | None]] = {
+    default_language_map: t.ClassVar[dict[str, str | None]] = {
         "zh-hans": "zh-cn",
         "zh-hant": "zh-tw",
         "nb": "no",
         "sr-latn": None,
     }
+
+    def __init__(
+        self,
+        *,
+        retries: int | None = None,
+        retry_delay: float | None = None,
+        rate_limit_delay: float | None = None,
+        language_map: dict[str, str | None] | None = None,
+    ):
+        """
+        :param retries: How many times to retry a request that fails because of a
+            network error or because Google rejected it.
+        :param retry_delay: The delay in seconds before retrying a request that
+            failed because of a network error (doubled for each retry).
+        :param rate_limit_delay: The delay in seconds before retrying a request that
+            Google rejected, usually because of rate limiting (doubled for each
+            retry).
+        :param language_map: Mappings of Django language codes to Google language
+            codes (or None if Google does not support the language). These are
+            added to, or override, :attr:`default_language_map`.
+        """
+        if retries is not None:
+            self.retries = retries
+        if retry_delay is not None:
+            self.retry_delay = retry_delay
+        if rate_limit_delay is not None:
+            self.rate_limit_delay = rate_limit_delay
+        self.language_map = {**self.default_language_map, **(language_map or {})}
 
     def service_language(self, language: str) -> str | None:
         import googletrans
@@ -308,33 +339,29 @@ class GoogleAPITranslatorService(TranslatorService):
     https://github.com/google/google-api-python-client
     """
 
-    def __init__(self, max_segments=128):
+    def __init__(self, *, api_key: str | None = None, max_segments: int = 128):
+        """
+        :param api_key: Your Google Cloud Translation API key (required).
+        :param max_segments: The maximum number of strings to send in each request.
+            The API rejects requests with more than 128.
+        """
+        if not api_key:
+            raise ImproperlyConfigured(
+                _("The `{option}` option is required by `{service}`.").format(
+                    option="api_key", service=self.__class__.__name__
+                )
+            )
         try:
             from googleapiclient.discovery import build
-
-            self.developer_key = getattr(settings, "GOOGLE_TRANSLATE_KEY", None)
-            if not self.developer_key:
-                raise ImproperlyConfigured(
-                    _(
-                        "`{setting}` is not configured, it is required by `{service}`"
-                    ).format(
-                        setting="GOOGLE_TRANSLATE_KEY", service=self.__class__.__name__
-                    )
-                )
-
-            self.service = build("translate", "v2", developerKey=self.developer_key)
-
-            # the google translation API has a limit of max
-            # 128 translations in a single request
-            # and throws `Too many text segments Error`
-            self.max_segments = max_segments
-            self.translated_strings = []
         except ImportError as ie:
             raise ImportError(
                 _("`{service}` requires the `{package}` package.").format(
                     service=self.__class__.__name__, package="google-api-python-client"
                 )
             ) from ie
+
+        self.service = build("translate", "v2", developerKey=api_key)
+        self.max_segments = max_segments
 
     def translate_string(
         self, text: str, target_language: str, source_language: str = "en"
@@ -372,19 +399,23 @@ class AmazonTranslateTranslatorService(TranslatorService):
     https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/translate.html
     """
 
-    def __init__(
-        self,
-    ):
+    def __init__(self, **client_options):
+        """
+        :param client_options: Passed to :func:`boto3.client` (e.g. ``region_name``,
+            ``aws_access_key_id``, ``aws_secret_access_key``). Anything not given
+            is found by boto3 the usual way (environment variables, ``~/.aws``
+            config files, instance roles, ...).
+        """
         try:
             import boto3
-
-            self.service = boto3.client("translate")
         except ImportError as ie:
             raise ImportError(
-                _("`{service}` requires the `{package}` package").format(
+                _("`{service}` requires the `{package}` package.").format(
                     service=self.__class__.__name__, package="boto3"
                 )
             ) from ie
+
+        self.service = boto3.client("translate", **client_options)
 
     def translate_string(
         self, text: str, target_language: str, source_language: str = "en"

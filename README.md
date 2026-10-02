@@ -55,13 +55,41 @@ python manage.py autotranslate -l 'de' -l 'es'
 
 ### Settings
 
-- Use a different Translation Service:
+The translation service is set with ``AUTOTRANSLATE_SERVICE``. It defaults to the free Google Translate service, ``"autotranslate.services.GoogleTranslatorService"``. To use a different service give its import path, or a dictionary with the import path as ``BACKEND`` and ``OPTIONS`` to configure it. The ``--service`` option overrides the setting for a single run, the ``OPTIONS`` are only used with the configured ``BACKEND``.
+
+- Paid Google Cloud Translation (``pip install "django-autotranslate[google]"``):
 
 ```python
-# default: 'autotranslate.services.GoogleTranslatorService'
-# pip install google-api-python-client
-AUTOTRANSLATE_TRANSLATOR_SERVICE = "autotranslate.services.GoogleAPITranslatorService"
-GOOGLE_TRANSLATE_KEY = "<google-api-key>"
+AUTOTRANSLATE_SERVICE = {
+    "BACKEND": "autotranslate.services.GoogleAPITranslatorService",
+    "OPTIONS": {
+        "api_key": "<google-api-key>",  # required
+        "max_segments": 128,  # strings per request
+    },
+}
+```
+
+- Amazon Translate (``pip install "django-autotranslate[amazon]"``). The ``OPTIONS`` are passed to ``boto3.client()``, anything not given is found by boto3 as usual (environment variables, ``~/.aws`` config files, instance roles):
+
+```python
+AUTOTRANSLATE_SERVICE = {
+    "BACKEND": "autotranslate.services.AmazonTranslateTranslatorService",
+    "OPTIONS": {"region_name": "us-east-1"},
+}
+```
+
+- Free Google Translate (default). The ``OPTIONS`` tune how requests are retried and how Django language codes map onto Google's:
+
+```python
+AUTOTRANSLATE_SERVICE = {
+    "BACKEND": "autotranslate.services.GoogleTranslatorService",
+    "OPTIONS": {
+        "retries": 3,  # retries for network errors and rejected requests
+        "retry_delay": 1.0,  # seconds before retrying a network error (doubles)
+        "rate_limit_delay": 30.0,  # seconds before retrying a rejected request (doubles)
+        "language_map": {"nb": "no"},  # Django code -> Google code (None = unsupported)
+    },
+}
 ```
 
 ## Compatibility Matrix

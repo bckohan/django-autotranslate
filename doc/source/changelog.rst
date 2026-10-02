@@ -14,6 +14,12 @@ v2.0.0 (unreleased)
   ``--set-fuzzy`` marks the new machine translations for review.
 * Added an optional progress bar (``--progress/--no-progress``), install the
   ``progress`` extra to use it.
+* ``AUTOTRANSLATE_SERVICE`` may now be a dictionary with a ``BACKEND`` import path
+  and ``OPTIONS`` that configure the service.
+* **Breaking:** ``GOOGLE_TRANSLATE_KEY`` has been removed, set the ``api_key`` option
+  of ``GoogleAPITranslatorService`` instead.
+* **Breaking:** the ``AUTOTRANSLATE_TRANSLATOR_SERVICE`` setting has been removed, use
+  ``AUTOTRANSLATE_SERVICE`` instead.
 
 v1.3.0 (2024-08-23)
 ===================

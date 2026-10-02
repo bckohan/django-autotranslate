@@ -199,7 +199,7 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
                 _("{framework} framework is disabled").format(framework="i18n")
             )
 
-        self.service = get_translator(service)
+        self.service = get_translator(service, source="--service")
         tqdm_installed = find_spec("tqdm") is not None
         if progress and not tqdm_installed:
             raise CommandError(
