@@ -29,7 +29,7 @@ class HumanizeTestCase(TestCase):
         self.assertEqual("foo __item____item__", humanize_placeholders("foo %s%s"))
 
 
-class RestoreTestCase(unittest.TestCase):
+class RestoreTestCase(TestCase):
     def test_restore_placeholders(self):
         self.assertEqual(
             "baz %(item)s zilot",
@@ -48,7 +48,7 @@ class RestoreTestCase(unittest.TestCase):
         )
 
 
-class POFileTestCase(unittest.TestCase):
+class POFileTestCase(TestCase):
     def setUp(self):
         cmd = Command()
         cmd.set_options(**dict(locale="ia", set_fuzzy=False, skip_translated=False))

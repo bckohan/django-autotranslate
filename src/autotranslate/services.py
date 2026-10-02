@@ -1,4 +1,5 @@
 import asyncio
+import re
 import typing as t
 
 from django.conf import settings
@@ -6,10 +7,12 @@ from django.core.exceptions import ImproperlyConfigured
 from django.utils.translation import gettext as _
 
 
-class BaseTranslatorService:
+class TranslatorService:
     """
     Defines the base methods that should be implemented
     """
+
+    supported_languages: t.List[str] = []
 
     def translate_string(
         self, text: str, target_language: str, source_language: str = "en"
@@ -37,8 +40,52 @@ class BaseTranslatorService:
             _("{function}() must be overridden.").format(function="translate_strings")
         )
 
+    def humanize_placeholders(self, msgid):
+        """Convert placeholders to the (google translate) service friendly form.
 
-class GoogleTranslatorService(BaseTranslatorService):
+        %(name)s -> __name__
+        %s       -> __item__
+        %d       -> __number__
+        """
+        return re.sub(
+            r"%(?:\((\w+)\))?([sd])",
+            lambda match: r"__{0}__".format(
+                match.group(1).lower()
+                if match.group(1)
+                else "number"
+                if match.group(2) == "d"
+                else "item"
+            ),
+            msgid,
+        )
+
+    def restore_placeholders(self, msgid, translation):
+        """Restore placeholders in the translated message."""
+        placehoders = re.findall(r"(\s*)(%(?:\(\w+\))?[sd])(\s*)", msgid)
+        return re.sub(
+            r"(\s*)(__[\w]+?__)(\s*)",
+            lambda matches: "{0}{1}{2}".format(
+                placehoders[0][0], placehoders[0][1], placehoders.pop(0)[2]
+            ),
+            translation,
+        )
+
+    def fix_translation(self, msgid, translation):
+        # Google Translate removes a lot of formatting, these are the fixes:
+        # - Add newline in the beginning if msgid also has that
+        if msgid.startswith("\n") and not translation.startswith("\n"):
+            translation = "\n" + translation
+
+        # - Add newline at the end if msgid also has that
+        if msgid.endswith("\n") and not translation.endswith("\n"):
+            translation += "\n"
+
+        # Remove spaces that have been placed between %(id) tags
+        translation = self.restore_placeholders(msgid, translation)
+        return translation
+
+
+class GoogleTranslatorService(TranslatorService):
     """
     Uses the free web-based API for translating.
     https://github.com/ssut/py-googletrans
@@ -70,7 +117,7 @@ class GoogleTranslatorService(BaseTranslatorService):
         return (item.text for item in translations)
 
 
-class GoogleAPITranslatorService(BaseTranslatorService):
+class GoogleAPITranslatorService(TranslatorService):
     """
     Uses the paid Google API for translating.
     https://github.com/google/google-api-python-client
@@ -134,7 +181,7 @@ class GoogleAPITranslatorService(BaseTranslatorService):
             strings = strings[self.max_segments :]
 
 
-class AmazonTranslateTranslatorService(BaseTranslatorService):
+class AmazonTranslateTranslatorService(TranslatorService):
     """
     Uses the paid Amazon Translate for translating.
     https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/translate.html
