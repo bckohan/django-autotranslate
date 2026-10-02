@@ -10,9 +10,26 @@ from django.utils.translation import gettext as _
 class TranslatorService:
     """
     Defines the base methods that should be implemented
+
+    Services are also context managers. Callers that make multiple translation
+    calls should use the service in a ``with`` block so that services that hold
+    resources (e.g. network clients) can set them up once and tear them down when
+    finished. Subclasses that need this should override :meth:`__enter__` and
+    :meth:`__exit__`, and must still work when used outside of a ``with`` block.
     """
 
     supported_languages: t.ClassVar[list[str]] = []
+
+    def __enter__(self) -> t.Self:
+        """
+        Acquire any resources the service needs for the duration of the block.
+        """
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        """
+        Release any resources acquired in :meth:`__enter__`.
+        """
 
     def translate_string(
         self, text: str, target_language: str, source_language: str = "en"
@@ -91,17 +108,61 @@ class GoogleTranslatorService(TranslatorService):
     https://github.com/ssut/py-googletrans
     """
 
-    def __init__(self):
+    # googletrans clients hold an httpx.AsyncClient that is bound to the event loop
+    # it first runs on, so the client and the loop must share the same lifetime
+    _runner: asyncio.Runner | None = None
+    _translator: t.Any = None
+
+    @staticmethod
+    async def _open_translator():
         import googletrans
 
-        self.service = googletrans.Translator()
+        return await googletrans.Translator().__aenter__()
+
+    def __enter__(self) -> t.Self:
+        self._runner = asyncio.Runner()
+        try:
+            self._translator = self._runner.run(self._open_translator())
+        except BaseException:
+            self._runner.close()
+            self._runner = None
+            raise
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        if self._runner is None:
+            return
+        try:
+            self._runner.run(self._translator.__aexit__(None, None, None))
+        finally:
+            self._runner.close()
+            self._runner = None
+            self._translator = None
+
+    def _translate(self, text, target_language: str, source_language: str):
+        if self._runner is not None:
+            return self._runner.run(
+                self._translator.translate(
+                    text, dest=target_language, src=source_language
+                )
+            )
+
+        # not in a with block - use a single-use client and event loop
+        async def translate_once():
+            translator = await self._open_translator()
+            try:
+                return await translator.translate(
+                    text, dest=target_language, src=source_language
+                )
+            finally:
+                await translator.__aexit__(None, None, None)
+
+        return asyncio.run(translate_once())
 
     def translate_string(
         self, text: str, target_language: str, source_language: str = "en"
-    ):
-        return asyncio.run(
-            self.service.translate(text, dest=target_language, src=source_language)
-        ).text
+    ) -> str:
+        return self._translate(text, target_language, source_language).text
 
     def translate_strings(
         self,
@@ -109,11 +170,7 @@ class GoogleTranslatorService(TranslatorService):
         target_language: str,
         source_language: str = "en",
     ) -> t.Generator[str, None, None]:
-        translations = asyncio.run(
-            self.service.translate(
-                list(strings), dest=target_language, src=source_language
-            )
-        )
+        translations = self._translate(list(strings), target_language, source_language)
         return (item.text for item in translations)
 
 

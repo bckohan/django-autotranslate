@@ -187,38 +187,46 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
                 ).format(setting="settings.LOCALE_PATHS")
             )
 
-        for directory in self.to_translate:
-            # walk through all the paths
-            # and find all the pot files
+        # use the service as a context manager so it can reuse resources (e.g.
+        # network clients) across all of the files we translate
+        with self.service:
+            for directory in self.to_translate:
+                self.translate_directory(directory)
 
-            if not directory.exists():
-                self.secho(
-                    _("Directory `{}` does not exist.").format(directory),
-                    fg="red",
-                )
-                continue
+    def translate_directory(self, directory: Path):
+        """
+        Translate all of the message files found under the given locale directory.
 
-            for root_dir, _dirs, files in os.walk(directory):
-                root = Path(root_dir)
-                for file in files:
-                    if not file.endswith(".po"):
-                        # process file only
-                        # if its a pot file
-                        continue
+        :param directory: The locale directory to search for message files
+        """
+        if not directory.exists():
+            self.secho(
+                _("Directory `{}` does not exist.").format(directory),
+                fg="red",
+            )
+            return
 
-                    # get the target language from the <lang>/LC_MESSAGES/ folder name
-                    target_language = root.parent.name
+        for root_dir, _dirs, files in os.walk(directory):
+            root = Path(root_dir)
+            for file in files:
+                if not file.endswith(".po"):
+                    # process file only
+                    # if its a pot file
+                    continue
 
-                    if self.locale and target_language not in self.locale:
-                        self.secho(
-                            _("Skipping translation for locale `{}`").format(
-                                target_language
-                            ),
-                            fg="yellow",
-                        )
-                        continue
+                # get the target language from the <lang>/LC_MESSAGES/ folder name
+                target_language = root.parent.name
 
-                    self.translate_file(root / file, target_language)
+                if self.locale and target_language not in self.locale:
+                    self.secho(
+                        _("Skipping translation for locale `{}`").format(
+                            target_language
+                        ),
+                        fg="yellow",
+                    )
+                    continue
+
+                self.translate_file(root / file, target_language)
 
     def translate_file(self, po_file: Path, target_language: str):
         """
