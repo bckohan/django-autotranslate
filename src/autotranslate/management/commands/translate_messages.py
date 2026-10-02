@@ -8,6 +8,7 @@ from django.apps import AppConfig
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.core.management import CommandError
+from django.utils.text import format_lazy
 from django.utils.translation import gettext_lazy as _
 from django_typer.completers.apps import app_labels
 from django_typer.completers.path import directories, import_paths
@@ -36,11 +37,12 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
         :theme: dark
     """
 
-    help = _(
-        "Machine translate all the message files that have been generated "
-        "using the {makemessages} command in the given apps or directories. By "
-        "default, only directories in {locale_paths} are translated."
-    ).format(
+    help = format_lazy(
+        _(
+            "Machine translate all the message files that have been generated "
+            "using the {makemessages} command in the given apps or directories. By "
+            "default, only directories in {locale_paths} are translated."
+        ),
         makemessages=(
             "[makemessages]"
             "(https://docs.djangoproject.com/en/stable/ref/django-admin/#django-admin-makemessages)"
@@ -142,10 +144,16 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
             str,
             Option(
                 "--service",
-                help=_(
-                    "The translation service to use if different than the configured "
-                    "service in settings (settings.{setting})."
-                ).format(setting=SERVICE_SETTING),
+                help=t.cast(
+                    str,
+                    format_lazy(
+                        _(
+                            "The translation service to use if different than the "
+                            "configured service in settings (settings.{setting})."
+                        ),
+                        setting=SERVICE_SETTING,
+                    ),
+                ),
                 shell_complete=import_paths,
             ),
         ] = get_service_import_path(),
