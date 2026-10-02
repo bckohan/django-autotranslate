@@ -55,25 +55,25 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
         else "LOCALE_PATHS",
     )
 
-    paths: t.List[Path] = []
-    apps: t.List[AppConfig] = []
+    paths: list[Path] = []
+    apps: list[AppConfig] = []
     retranslate: bool = False
     set_fuzzy: bool = False
     source_language: str = "en"
 
-    to_translate: t.List[Path] = []
-    apps: t.List[AppConfig] = []
+    to_translate: list[Path] = []
+    apps: list[AppConfig] = []
 
     service: TranslatorService
 
     @cached_property
-    def language_codes(self) -> t.Dict[str, str]:
+    def language_codes(self) -> dict[str, str]:
         return language_codes()
 
     def handle(
         self,
         paths: t.Annotated[
-            t.List[Path],
+            list[Path],
             Option(
                 "--path",
                 "-p",
@@ -85,7 +85,7 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
             ),
         ] = paths,
         apps: t.Annotated[
-            t.List[AppConfig],
+            list[AppConfig],
             Option(
                 "--app",
                 "-a",
@@ -95,7 +95,7 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
             ),
         ] = apps,
         locale: t.Annotated[
-            t.List[str],
+            list[str],
             Option(
                 "--locale",
                 "-l",

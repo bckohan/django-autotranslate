@@ -1,8 +1,9 @@
 set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
-set unstable
-set script-interpreter := ['uv', 'run', '--script']
+set unstable := true
+set script-interpreter := ['uv', 'run', '--project', '.', '--script']
 
 export PYTHONPATH := source_directory()
+export DJANGO_SETTINGS_MODULE := "tests.settings"
 
 [private]
 default:
@@ -12,67 +13,59 @@ default:
 [script]
 manage *COMMAND:
     import os
-    import sys
+    import shlex
     from django.core import management
-    os.environ["DJANGO_SETTINGS_MODULE"] = "tests.settings"
-    management.execute_from_command_line(sys.argv + "{{ COMMAND }}".split(" "))
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "tests.settings")
+    management.execute_from_command_line(["just manage", *shlex.split("{{COMMAND}}")])
 
 # install the uv package manager
 [linux]
 [macos]
-install_uv:
+install-uv:
     curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # install the uv package manager
 [windows]
-install_uv:
+install-uv:
     powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 
-# setup the venv, pre-commit hooks
+# setup the venv and pre-commit hooks
 setup python="python":
-    uv venv -p {{ python }}
-    @just run pre-commit install
+    uv venv -p {{python}}
+    @just install-prek
 
 # install git pre-commit hooks
-install-precommit:
-    @just run pre-commit install
+install-prek:
+    uvx prek install
 
 # update and install development dependencies
 install *OPTS="--all-extras":
-    uv sync {{ OPTS }}
-    @just run pre-commit install
+    uv sync {{OPTS}}
 
-# install documentation dependencies
-install-docs:
-    uv sync --group docs --all-extras
+_install-docs:
+    uv sync --no-default-groups --group docs --all-extras
 
-# run the development server
-runserver:
-    @just manage makemigrations
-    @just manage migrate
-    @just manage runserver 8027
+# run static type checking with mypy
+check-types-mypy *ENV:
+    @just run {{ENV}} --no-default-groups --all-extras --group typing mypy
 
-[script]
-_lock-python:
-    import tomlkit
-    import sys
-    f='pyproject.toml'
-    d=tomlkit.parse(open(f).read())
-    d['project']['requires-python']='=={}'.format(sys.version.split()[0])
-    open(f,'w').write(tomlkit.dumps(d))
+# run static type checking with pyright
+check-types-pyright *ENV:
+    @just run {{ENV}} --no-default-groups --all-extras --group typing pyright
 
-# lock to specific python and versions of given dependencies
-test-lock +PACKAGES: _lock-python
-    uv add {{ PACKAGES }}
+# run all static type checking
+check-types *ENV:
+    @just check-types-mypy {{ENV}}
+    @just check-types-pyright {{ENV}}
 
-# run static type checking
-check-types:
-    @just run mypy
-    @just run pyright
+# run all static type checking in an isolated environment
+check-types-isolated *ENV:
+    @just check-types-mypy {{ENV}} --exact --isolated
+    @just check-types-pyright {{ENV}} --exact --isolated
 
 # run package checks
 check-package:
-    @just run pip check
+    uv pip check
 
 # remove doc build artifacts
 [script]
@@ -81,34 +74,19 @@ clean-docs:
     shutil.rmtree('./doc/build', ignore_errors=True)
 
 # remove the virtual environment
-[script]
 clean-env:
-    import shutil
-    import sys
-    shutil.rmtree(".venv", ignore_errors=True)
+    python -c "import shutil, pathlib; p=pathlib.Path('.venv'); shutil.rmtree(p, ignore_errors=True) if p.exists() else None"
 
 # remove all git ignored files
 clean-git-ignored:
     git clean -fdX
 
-# remove all non repository artifacts
+# remove all non-repository artifacts
 clean: clean-docs clean-env clean-git-ignored
 
 # build html documentation
-build-docs-html: install-docs
-    @just run sphinx-build --fresh-env --builder html --doctree-dir ./doc/build/doctrees ./doc/source ./doc/build/html
-
-[script]
-_open-pdf-docs:
-    import webbrowser
-    from pathlib import Path
-    webbrowser.open(f"file://{Path('./doc/build/pdf/djangoautotranslate.pdf').absolute()}")
-
-# build pdf documentation
-build-docs-pdf: install-docs
-    @just run sphinx-build --fresh-env --builder latex --doctree-dir ./doc/build/doctrees ./doc/source ./doc/build/pdf
-    make -C ./doc/build/pdf
-    @just _open-pdf-docs
+build-docs-html:
+    @just run --group docs --all-extras --isolated --no-default-groups --exact sphinx-build --fresh-env --builder html --doctree-dir ./doc/build/doctrees ./doc/source ./doc/build/html
 
 # build the docs
 build-docs: build-docs-html
@@ -127,35 +105,37 @@ open-docs:
 # build and open the documentation
 docs: build-docs-html open-docs
 
-# serve the documentation, with auto-reload
-docs-live: install-docs
-    @just run sphinx-autobuild doc/source doc/build --open-browser --watch src --port 8000 --delay 1
+# serve the documentation with auto-reload
+docs-live:
+    @just run --group docs --all-extras --isolated --no-default-groups sphinx-autobuild doc/source doc/build --open-browser --watch src --port 0 --delay 1
 
-_link_check:
-    -uv run sphinx-build -b linkcheck -Q -D linkcheck_timeout=10 ./doc/source ./doc/build
+_link-check:
+    -uv run --no-default-groups --group docs sphinx-build -b linkcheck -Q -D linkcheck_timeout=10 ./doc/source ./doc/build
 
-# check the documentation links for broken links
+# check documentation links for broken links
 [script]
-check-docs-links: _link_check
+check-docs-links: _link-check
     import os
     import sys
     import json
     from pathlib import Path
-    # The json output isn't valid, so we have to fix it before we can process.
     data = json.loads(f"[{','.join((Path(os.getcwd()) / 'doc/build/output.json').read_text().splitlines())}]")
-    broken_links = [link for link in data if link["status"] not in {"working", "redirected", "unchecked", "ignored"}]
+    broken_links = [
+        link for link in data
+        if link["status"] not in {"working", "redirected", "unchecked", "ignored"}
+    ]
     if broken_links:
         for link in broken_links:
             print(f"[{link['status']}] {link['filename']}:{link['lineno']} -> {link['uri']}", file=sys.stderr)
         sys.exit(1)
 
 # lint the documentation
-check-docs:
-    @just run doc8 --ignore-path ./doc/build --max-line-length 100 -q ./doc
+check-docs *ENV:
+    @just run {{ENV}} --no-default-groups --group docs doc8 --ignore-path ./doc/build --max-line-length 100 -q ./doc
 
-# fetch the intersphinx references for the given package
+# fetch intersphinx references for the given package
 [script]
-fetch-refs LIB: install-docs
+fetch-refs LIB: _install-docs
     import os
     from pathlib import Path
     import logging as _logging
@@ -163,71 +143,108 @@ fetch-refs LIB: install-docs
     import runpy
     from sphinx.ext.intersphinx import inspect_main
     _logging.basicConfig()
-
     libs = runpy.run_path(Path(os.getcwd()) / "doc/source/conf.py").get("intersphinx_mapping")
-    url = libs.get("{{ LIB }}", None)
+    url = libs.get("{{LIB}}", None)
     if not url:
-        sys.exit(f"Unrecognized {{ LIB }}, must be one of: {', '.join(libs.keys())}")
+        sys.exit(f"Unrecognized {{LIB}}, must be one of: {', '.join(libs.keys())}")
     if url[1] is None:
         url = f"{url[0].rstrip('/')}/objects.inv"
     else:
         url = url[1]
-
     raise SystemExit(inspect_main([url]))
 
 # lint the code
-check-lint:
-    @just run ruff check --select I
-    @just run ruff check
+check-lint *ENV:
+    @just run {{ENV}} --no-default-groups --group lint ruff check --select I
+    @just run {{ENV}} --no-default-groups --group lint ruff check
 
 # check if the code needs formatting
-check-format:
-    @just run ruff format --check
+check-format *ENV:
+    @just run {{ENV}} --no-default-groups --group lint ruff format --check
 
 # check that the readme renders
-check-readme:
-    @just run -m readme_renderer ./README.md -o /tmp/README.html
+check-readme *ENV:
+    @just run {{ENV}} --no-default-groups --group lint -m readme_renderer ./README.md -o /tmp/README.html
 
 # sort the python imports
-sort-imports:
-    @just run ruff check --fix --select I
+sort-imports *ENV:
+    @just run {{ENV}} --no-default-groups --group lint ruff check --fix --select I
 
 # format the code and sort imports
-format: sort-imports
+format *ENV:
+    @just sort-imports {{ENV}}
     just --fmt --unstable
-    @just run ruff format
+    @just run {{ENV}} --no-default-groups --group lint ruff format
 
-# sort the imports and fix linting issues
-lint: sort-imports
-    @just run ruff check --fix
+# format the github workflow files
+format-workflows:
+    npx prettier --write ".github/workflows/*.{yml,yaml}"
+
+# sort imports and fix linting issues
+lint *ENV:
+    @just sort-imports {{ENV}}
+    @just run {{ENV}} --no-default-groups --group lint ruff check --fix
 
 # fix formatting, linting issues and import sorting
-fix: lint format
+fix *ENV:
+    @just lint {{ENV}}
+    @just format {{ENV}}
+
+# run bandit static security analysis
+bandit:
+    @just run --no-default-groups --group lint bandit -c pyproject.toml -r ./src -f sarif -o bandit.sarif
+
+# run zizmor security analysis of CI
+zizmor:
+    cargo install --locked zizmor
+    zizmor --persona auditor --format sarif .github/workflows/ > zizmor.sarif
 
 # run all static checks
-check: check-lint check-format check-types check-package check-docs check-docs-links check-readme
+check *ENV:
+    @just check-lint {{ENV}}
+    @just check-format {{ENV}}
+    @just check-types {{ENV}}
+    @just check-package
+    @just check-docs {{ENV}}
+    @just check-readme {{ENV}}
 
-# run all tests
-test-all: install
-    # TODO
+# run all checks including documentation link checking (slow)
+check-all *ENV:
+    @just check {{ENV}}
+    @just check-docs-links
 
-# run tests
+# run all tests (pass --group flags for db client and django version, e.g. --group psycopg3 --group dj52)
+test-all *ENV:
+    @just run {{ENV}} --no-default-groups --exact --all-extras --group test --isolated pytest --cov-append
+
+# run specific tests (project venv)
 test *TESTS:
-    # TODO
+    @just run --group test --no-sync pytest {{TESTS}}
+
+# debug a test
+debug-test *TESTS:
+    @just run pytest \
+      -o addopts='-ra -q' \
+      -s --trace --pdbcls=IPython.terminal.debugger:Pdb \
+      --headed {{TESTS}}
 
 # run the pre-commit checks
-precommit:
-    @just run pre-commit
+prek:
+    uvx prek run
+
+# erase any coverage data
+coverage-erase:
+    @just run --no-default-groups --group coverage coverage erase
 
 # generate the test coverage report
 coverage:
-    @just run coverage combine --keep *.coverage
-    @just run coverage report
-    @just run coverage xml
+    @just run --no-default-groups --group coverage coverage combine --keep *.coverage
+    @just run --no-default-groups --group coverage coverage report
+    @just run --no-default-groups --group coverage coverage xml
 
 # run the command in the virtual environment
 run +ARGS:
-    uv run {{ ARGS }}
+    uv run {{ARGS}}
 
 # validate the given version string against the lib version
 [script]
@@ -236,17 +253,15 @@ validate_version VERSION:
     import tomllib
     import autotranslate
     from packaging.version import Version
-    raw_version = "{{ VERSION }}".lstrip("v")
+    raw_version = "{{VERSION}}".lstrip("v")
     version_obj = Version(raw_version)
-    # the version should be normalized
     assert str(version_obj) == raw_version
-    # make sure all places the version appears agree
     assert raw_version == tomllib.load(open('pyproject.toml', 'rb'))['project']['version']
     assert raw_version == autotranslate.__version__
     print(raw_version)
 
-# issue a relase for the given semver string (e.g. 2.1.0)
-release VERSION:
-    @just validate_version v{{ VERSION }}
-    git tag -s v{{ VERSION }} -m "{{ VERSION }} Release"
-    git push origin v{{ VERSION }}
+# issue a release for the given semver string (e.g. 1.0.0)
+release VERSION: install check-all
+    @just validate_version v{{VERSION}}
+    git tag -s v{{VERSION}} -m "{{VERSION}} Release"
+    git push https://github.com/ankitpopli1891/django-autotranslate.git v{{VERSION}}

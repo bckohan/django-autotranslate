@@ -12,7 +12,7 @@ class TranslatorService:
     Defines the base methods that should be implemented
     """
 
-    supported_languages: t.List[str] = []
+    supported_languages: list[str] = []
 
     def translate_string(
         self, text: str, target_language: str, source_language: str = "en"
@@ -64,9 +64,7 @@ class TranslatorService:
         placehoders = re.findall(r"(\s*)(%(?:\(\w+\))?[sd])(\s*)", msgid)
         return re.sub(
             r"(\s*)(__[\w]+?__)(\s*)",
-            lambda matches: "{0}{1}{2}".format(
-                placehoders[0][0], placehoders[0][1], placehoders.pop(0)[2]
-            ),
+            lambda matches: f"{placehoders[0][0]}{placehoders[0][1]}{placehoders.pop(0)[2]}",
             translation,
         )
 

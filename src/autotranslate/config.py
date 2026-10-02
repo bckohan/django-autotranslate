@@ -1,4 +1,3 @@
-import typing as t
 from importlib.util import find_spec
 
 from django.conf import settings
@@ -21,7 +20,7 @@ def get_service_import_path() -> str:
     )
 
 
-def get_translator(service_path: t.Optional[str] = None) -> TranslatorService:
+def get_translator(service_path: str | None = None) -> TranslatorService:
     """
     Returns an instantiated service of the configured translator or the translator at
     the given path.
@@ -53,7 +52,7 @@ def get_translator(service_path: t.Optional[str] = None) -> TranslatorService:
     return translator()
 
 
-def language_codes() -> t.Dict[str, str]:
+def language_codes() -> dict[str, str]:
     """
     Get a mapping of language codes to their names from Django settings.
     """
