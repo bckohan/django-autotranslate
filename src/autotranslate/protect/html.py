@@ -2,20 +2,56 @@
 Tokenize HTML markup in messages (e.g. ``Read the <a href="%(url)s">docs</a>``).
 
 Elements become :class:`.Paired` segments whose content is translated. Void and
-self-closing elements, comments, character references and whole elements in
-:data:`OPAQUE_ELEMENTS` are :class:`.Opaque`. Attribute values are not translated.
+self-closing elements, comments, declarations, character references and whole
+elements in :data:`OPAQUE_ELEMENTS` are :class:`.Opaque`. Attribute values are not
+translated.
+
+The message is lexed with a regular expression and every segment's source is an
+exact slice of the message, so serializing the segments always reproduces it.
 """
 
 import re
-from html.parser import HTMLParser
 
 from .segments import Opaque, Paired, Segment, Text, merge_text, serialize
 
 #: Elements whose content must not be translated
 OPAQUE_ELEMENTS = {"code", "kbd", "pre", "samp", "script", "style", "var"}
 
+#: Elements that never have content or an end tag
+VOID_ELEMENTS = {
+    "area",
+    "base",
+    "br",
+    "col",
+    "embed",
+    "hr",
+    "img",
+    "input",
+    "link",
+    "meta",
+    "param",
+    "source",
+    "track",
+    "wbr",
+}
+
 LOOKS_LIKE_HTML = re.compile(
-    r"<(?:[a-zA-Z][^<>]*|/[a-zA-Z][^<>]*|!--.*?--)>|&#?\w+;", re.DOTALL
+    r"<(?:[a-zA-Z][^<>]*|/[a-zA-Z][^<>]*|!--.*?--|[!?][^<>]*)>|&#?\w+;", re.DOTALL
+)
+
+_NAME = r"[A-Za-z][A-Za-z0-9:-]*"
+
+_TOKEN = re.compile(
+    rf"""
+    (?P<comment><!--.*?-->)
+    |(?P<declaration><!\[CDATA\[.*?\]\]>|<![^>]*>|<\?[^>]*>)
+    |(?P<end></(?P<end_name>{_NAME})\s*>)
+    |(?P<start><(?P<start_name>{_NAME})
+        (?:\s+[^\s"'>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*
+        \s*(?P<slash>/)?>)
+    |(?P<entity>&(?:[A-Za-z][A-Za-z0-9]*|\#[0-9]+|\#[xX][0-9A-Fa-f]+);)
+    """,
+    re.DOTALL | re.VERBOSE,
 )
 
 
@@ -26,79 +62,6 @@ class _Element:
         self.children: list[Segment] = []
 
 
-class _Tokenizer(HTMLParser):
-    def __init__(self):
-        super().__init__(convert_charrefs=False)
-        self.stack = [_Element(None, "")]
-        self.end_tag_source = ""
-
-    @property
-    def children(self) -> list[Segment]:
-        return self.stack[-1].children
-
-    def parse_endtag(self, i):
-        # remember the end tag exactly as written (e.g. "</A >")
-        end = self.rawdata.find(">", i)
-        self.end_tag_source = self.rawdata[i : end + 1] if end != -1 else ""
-        return super().parse_endtag(i)
-
-    def handle_starttag(self, tag, attrs):
-        self.stack.append(
-            _Element(Opaque(self.get_starttag_text() or "", "tag", tag), tag)
-        )
-
-    def handle_startendtag(self, tag, attrs):
-        self.children.append(Opaque(self.get_starttag_text() or "", "tag", tag))
-
-    def handle_endtag(self, tag):
-        end = Opaque(self.end_tag_source or f"</{tag}>", "tag", tag)
-        if not any(element.tag == tag for element in self.stack[1:]):
-            # an end tag without a start tag
-            self.children.append(end)
-            return
-        # close elements left open inside this one, they become loose start tags
-        while self.stack[-1].tag != tag:
-            self._unwind()
-        element = self.stack.pop()
-        assert element.start is not None
-        if tag in OPAQUE_ELEMENTS or any(e.tag in OPAQUE_ELEMENTS for e in self.stack):
-            self.children.append(
-                Opaque(
-                    element.start.source + serialize(element.children) + end.source,
-                    "tag",
-                    tag,
-                )
-            )
-        else:
-            self.children.append(
-                Paired(element.start, end, merge_text(element.children))
-            )
-
-    def _unwind(self):
-        element = self.stack.pop()
-        assert element.start is not None
-        self.children.append(element.start)
-        self.children.extend(element.children)
-
-    def handle_data(self, data):
-        self.children.append(Text(data))
-
-    def handle_entityref(self, name):
-        self.children.append(Opaque(f"&{name};", "entity"))
-
-    def handle_charref(self, name):
-        self.children.append(Opaque(f"&#{name};", "entity"))
-
-    def handle_comment(self, data):
-        self.children.append(Opaque(f"<!--{data}-->", "comment"))
-
-    def segments(self) -> list[Segment]:
-        self.close()
-        while len(self.stack) > 1:
-            self._unwind()
-        return merge_text(self.stack[0].children)
-
-
 def html(text: str) -> list[Segment]:
     """
     Tokenize the HTML in a message. Messages that do not look like they contain
@@ -106,6 +69,65 @@ def html(text: str) -> list[Segment]:
     """
     if not LOOKS_LIKE_HTML.search(text):
         return [Text(text)]
-    tokenizer = _Tokenizer()
-    tokenizer.feed(text)
-    return tokenizer.segments()
+
+    stack = [_Element(None, "")]
+
+    def unwind() -> None:
+        element = stack.pop()
+        assert element.start is not None
+        stack[-1].children.append(element.start)
+        stack[-1].children.extend(element.children)
+
+    position = 0
+    for match in _TOKEN.finditer(text):
+        if match.start() > position:
+            stack[-1].children.append(Text(text[position : match.start()]))
+        position = match.end()
+        source = match.group()
+        kind = match.lastgroup
+        children = stack[-1].children
+        if match["comment"] is not None:
+            children.append(Opaque(source, "comment"))
+        elif match["declaration"] is not None:
+            children.append(Opaque(source, "declaration"))
+        elif match["entity"] is not None:
+            children.append(Opaque(source, "entity"))
+        elif match["start"] is not None:
+            tag = match["start_name"].lower()
+            start = Opaque(source, "tag", tag)
+            if match["slash"] or tag in VOID_ELEMENTS:
+                children.append(start)
+            else:
+                stack.append(_Element(start, tag))
+        else:
+            assert kind is not None
+            tag = match["end_name"].lower()
+            end = Opaque(source, "tag", tag)
+            if not any(element.tag == tag for element in stack[1:]):
+                # an end tag without a start tag
+                children.append(end)
+                continue
+            # elements left open inside this one become loose start tags
+            while stack[-1].tag != tag:
+                unwind()
+            element = stack.pop()
+            assert element.start is not None
+            if tag in OPAQUE_ELEMENTS or any(e.tag in OPAQUE_ELEMENTS for e in stack):
+                stack[-1].children.append(
+                    Opaque(
+                        element.start.source + serialize(element.children) + source,
+                        "tag",
+                        tag,
+                    )
+                )
+            else:
+                stack[-1].children.append(
+                    Paired(element.start, end, merge_text(element.children))
+                )
+    if position < len(text):
+        stack[-1].children.append(Text(text[position:]))
+    while len(stack) > 1:
+        unwind()
+    segments = merge_text(stack[0].children)
+    # losing markup protection is better than corrupting the message
+    return segments if serialize(segments) == text else [Text(text)]

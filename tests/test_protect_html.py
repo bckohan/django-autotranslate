@@ -1,8 +1,17 @@
+import random
+
 import pytest
 
 from autotranslate.protect.html import html
 from autotranslate.protect.parse import parse
-from autotranslate.protect.segments import Opaque, Paired, Text, serialize
+from autotranslate.protect.segments import (
+    Opaque,
+    Paired,
+    Text,
+    opaques,
+    serialize,
+    texts,
+)
 
 
 def test_not_html():
@@ -58,3 +67,80 @@ def test_parse_composes_tokenizers():
         Opaque("\n", "newline"),
         Text("ok"),
     ]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "<b>AT&T</b> R&D, M&S",
+        "Ask <b>Q&A</b> now",
+        "Fish &chips <i>x</i>",
+        "<i>x</i> &amp",
+    ],
+)
+def test_bare_ampersands_stay_text(text):
+    segments = html(text)
+    assert serialize(segments) == text
+    assert not [s for s in opaques(segments) if s.kind == "entity"]
+    assert "&" in "".join(s.text for s in texts(segments))
+
+
+@pytest.mark.parametrize("text", ["<!DOCTYPE x>", "<?pi?>", "<![CDATA[c]]>", "<!x>"])
+def test_declarations(text):
+    assert html(text) == [Opaque(text, "declaration")]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "</ x>",
+        "</>",
+        "<b>x</b><a",
+        "<!-- x <b>y</b>",
+        "<script>x",
+        "a < b > c <",
+    ],
+)
+def test_malformed_round_trip(text):
+    assert serialize(html(text)) == text
+
+
+def test_attribute_with_angle_bracket():
+    assert html("<a title='a>b'>x</a>") == [
+        Paired(
+            Opaque("<a title='a>b'>", "tag", "a"),
+            Opaque("</a>", "tag", "a"),
+            [Text("x")],
+        )
+    ]
+
+
+def test_nested_opaque_elements():
+    assert html("<code><var>x</var></code>") == [
+        Opaque("<code><var>x</var></code>", "tag", "code")
+    ]
+
+
+def test_void_elements_do_not_swallow():
+    assert html('<br>a<img src="x">b') == [
+        Opaque("<br>", "tag", "br"),
+        Text("a"),
+        Opaque('<img src="x">', "tag", "img"),
+        Text("b"),
+    ]
+
+
+def test_random_round_trip():
+    atoms = [
+        "<b>", "</b>", "<I class='x>y'>", "</I >", "<A HREF=\"u\">", "</a>",
+        "<br>", "<br/>", "<code>", "</code>", "<script>", "&amp;", "&amp", "&#39;",
+        "&#x27;", "&", "<", ">", "<!-- c -->", "<!--", "<!DOCTYPE x>", "<?pi?>",
+        "<![CDATA[c]]>", "%(n)s", "%s", "{x}", "{", "}", "word", "AT&T", " ", "\n",
+        "</", "<a", "'", '"', "=",
+    ]  # fmt: skip
+    rng = random.Random(1234)
+    for _ in range(2000):
+        text = "".join(rng.choice(atoms) for _ in range(rng.randint(1, 12)))
+        flags = ["python-format", "python-brace-format"]
+        assert serialize(html(text)) == text
+        assert serialize(parse(text, flags)) == text
