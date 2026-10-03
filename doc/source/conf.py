@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 import django
+from django.utils import translation
 from sphinx.ext.autodoc import between
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
@@ -64,7 +65,26 @@ intersphinx_mapping = {
 linkcheck_allow_redirects = True
 
 
+# Sphinx/RTD language names that do not convert to Django's language codes
+SPHINX_TO_DJANGO = {"zh_CN": "zh-hans", "zh_TW": "zh-hant", "nb_NO": "nb"}
+
+
+def activate_language(app, config):
+    """
+    Activate the Django translation for the language the docs are built in, so the
+    command help rendered by the typer directives is in the same language.
+    """
+    if config.language:
+        translation.activate(
+            SPHINX_TO_DJANGO.get(
+                config.language, translation.to_language(config.language)
+            )
+        )
+
+
 def setup(app):
+    app.connect("config-inited", activate_language)
+
     # Register a sphinx.ext.autodoc.between listener to ignore everything
     # between lines that contain the word IGNORE
     app.connect(
