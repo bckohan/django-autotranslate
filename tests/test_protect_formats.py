@@ -79,3 +79,32 @@ def test_tokenizers_for_flags():
     assert tokenizers_for(["no-python-format"]) == []
     assert tokenizers_for(["fuzzy"]) == [simple_printf, simple_brace]
     assert tokenizers_for([]) == [simple_printf, simple_brace]
+
+
+def test_brace_round_trip_empty_spec_and_conversion():
+    for text in ["{x:}", "{!r:}", "{x!r:}", "a {x:>{w}} b {{c}} {0!s}"]:
+        assert serialize(brace(text)) == text
+    assert [s.source for s in brace("{x:} {!r:} {x!r:}") if isinstance(s, Opaque)] == [
+        "{x:}",
+        "{!r:}",
+        "{x!r:}",
+    ]
+
+
+def test_simple_brace_numeric_is_item():
+    assert simple_brace("{0}") == [Opaque("{0}", "brace", "item")]
+
+
+def test_printf_octal_hex_named_number():
+    assert printf("%o %x %X") == [
+        Opaque("%o", "printf", "number"),
+        Text(" "),
+        Opaque("%x", "printf", "number"),
+        Text(" "),
+        Opaque("%X", "printf", "number"),
+    ]
+
+
+def test_tokenizers_for_no_flags_combinations():
+    assert tokenizers_for(["no-python-brace-format"]) == []
+    assert tokenizers_for(["python-format", "no-python-brace-format"]) == [printf]

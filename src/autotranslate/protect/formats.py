@@ -2,8 +2,8 @@
 Tokenizers for the placeholders in Python format strings.
 
 The printf grammar follows GNU gettext's definition of ``python-format``
-(gettext-tools/src/format-python.c): ``%`` then an optional ``(key)`` (balanced
-parentheses), flags ``-+ #0``, a width (``*`` or digits), a precision (``.`` then
+(gettext-tools/src/format-python.c): ``%`` then an optional ``(key)`` (with up to one
+level of nested parentheses), flags ``-+ #0``, a width (``*`` or digits), a precision (``.`` then
 ``*`` or digits), a length modifier ``h``, ``l`` or ``L`` and a conversion type.
 ``%%`` is an escape for a literal percent sign. Brace format strings
 (``python-brace-format``) are tokenized with :class:`string.Formatter`, which
@@ -42,6 +42,9 @@ TYPE_NAMES = {
     "E": "number",
     "g": "number",
     "G": "number",
+    "o": "number",
+    "x": "number",
+    "X": "number",
 }
 
 
@@ -81,7 +84,8 @@ def brace(text: str) -> list[Segment]:
         return [Text(text)]
 
     segments: list[Segment] = []
-    for literal, field_name, format_spec, conversion in parsed:
+    cursor = 0
+    for literal, field_name, _format_spec, _conversion in parsed:
         # parse() unescapes {{ and }} in the literal text, keep them as escapes so
         # they appear in the translation
         for index, part in enumerate(re.split(r"([{}])", literal)):
@@ -89,13 +93,20 @@ def brace(text: str) -> list[Segment]:
                 segments.append(Opaque(part * 2, "escape"))
             else:
                 segments.append(Text(part))
+        cursor += len(literal) + sum(literal.count(c) for c in "{}")
         if field_name is not None:
-            source = "{" + field_name
-            if conversion:
-                source += "!" + conversion
-            if format_spec:
-                source += ":" + format_spec
-            source += "}"
+            # take the field source from the input so it round trips exactly
+            depth = 0
+            end = cursor
+            for end in range(cursor, len(text)):
+                if text[end] == "{":
+                    depth += 1
+                elif text[end] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        break
+            source = text[cursor : end + 1]
+            cursor = end + 1
             name = re.split(r"[.\[]", field_name)[0] or "item"
             segments.append(
                 Opaque(source, "brace", name if not name.isdigit() else "item")
@@ -112,7 +123,12 @@ def simple_brace(text: str) -> list[Segment]:
     end = 0
     for match in SIMPLE_BRACE.finditer(text):
         segments.append(Text(text[end : match.start()]))
-        segments.append(Opaque(match.group(0), "brace", match.group(1) or "item"))
+        name = match.group(1)
+        segments.append(
+            Opaque(
+                match.group(0), "brace", "item" if not name or name.isdigit() else name
+            )
+        )
         end = match.end()
     segments.append(Text(text[end:]))
     return merge_text(segments)
