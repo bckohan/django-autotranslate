@@ -335,3 +335,58 @@ def test_token_guard_identical_sources_share_a_name():
 def test_token_guard_unnameable_placeholders_round_trip(source):
     protected = protect(f"Hi {source}!", TOKEN, ["python-format"])
     assert restore(protected, protected.encoded) == f"Hi {source}!"
+
+
+@pytest.mark.parametrize("guard", [HTML, TOKEN])
+@pytest.mark.parametrize(
+    "source, flags",
+    [
+        ("Total:\n%(n)s", ["python-format"]),
+        ("Hello,\n%s", ["python-format"]),
+        ("%s\n:", ["python-format"]),
+        ("Files:\n{count}", ["python-brace-format"]),
+        ("Name:\n<b>x</b>", []),
+    ],
+)
+def test_newline_next_to_punctuation_survives(guard, source, flags):
+    protected = protect(source, guard, flags)
+    assert restore(protected, protected.encoded) == source
+
+
+def test_token_numbering_is_deterministic():
+    import os
+    import subprocess
+    import sys
+
+    code = (
+        "from autotranslate.protect.guards import TokenGuard;"
+        "from autotranslate.protect.pipeline import protect;"
+        "print(protect('{0} and {0:>5} and {1!r} {1} {2} {3}', TokenGuard(),"
+        " ['python-brace-format']).encoded)"
+    )
+    outputs = {
+        subprocess.run(
+            [sys.executable, "-c", code],
+            env={**os.environ, "PYTHONHASHSEED": seed},
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        for seed in ("1", "2", "3", "4")
+    }
+    assert len(outputs) == 1
+
+
+def test_restore_rejects_regrouped_loose_tags():
+    protected = protect("</I >%(n)s%d</a><I class='x>y'>", TOKEN, ["python-format"])
+    tokens = re.findall(r"__\w+?__", protected.encoded)
+    assert len(tokens) == 5
+    first, n, d, end_a, start_i = tokens
+    assert restore(protected, "".join(tokens)) is not None
+    # the loose tags regrouped into a new element
+    assert restore(protected, "".join([end_a, start_i, first, n, d])) is None
+
+
+def test_restore_keeps_paired_markup():
+    protected = protect("Read <a href='/x'>docs</a>", TOKEN)
+    assert restore(protected, "Lea __x0__docs__x1__") == "Lea <a href='/x'>docs</a>"

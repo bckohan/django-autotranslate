@@ -11,12 +11,13 @@ Protect a message's placeholders and markup while it is translated:
 """
 
 import typing as t
+from collections import Counter
 from dataclasses import dataclass
 
 from .guards import Guard, same_opaques
 from .parse import parse
 from .repair import match_edges, repair
-from .segments import Segment, serialize
+from .segments import Paired, Segment, serialize
 
 
 @dataclass
@@ -44,6 +45,16 @@ def protect(text: str, guard: Guard, flags: t.Collection[str] = ()) -> Protected
     return Protected(text, segments, guard, guard.encode(segments), tuple(flags))
 
 
+def _pairs(segments: list[Segment]) -> Counter[tuple[str, str]]:
+    """The (start, end) sources of every paired element, however deeply nested."""
+    pairs: Counter[tuple[str, str]] = Counter()
+    for segment in segments:
+        if isinstance(segment, Paired):
+            pairs[(segment.start.source, segment.end.source)] += 1
+            pairs.update(_pairs(segment.children))
+    return pairs
+
+
 def restore(protected: Protected, translation: str) -> str | None:
     """
     Restore the protected placeholders and markup in a translation.
@@ -61,6 +72,9 @@ def restore(protected: Protected, translation: str) -> str | None:
     )
     # text the service returned outside the guards may hold extra placeholders
     # or markup (e.g. ``(%s)`` or unescaped ``&lt;b&gt;``)
-    if not same_opaques(protected.segments, parse(result, protected.flags)):
+    reparsed = parse(result, protected.flags)
+    if not same_opaques(protected.segments, reparsed) or _pairs(
+        protected.segments
+    ) != _pairs(reparsed):
         return None
     return result

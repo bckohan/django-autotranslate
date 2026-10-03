@@ -82,12 +82,12 @@ class TokenGuard(Guard):
                 return segment.name.lower()
             return None
 
-        sources: dict[str, set[str]] = {}
+        sources: dict[str, dict[str, None]] = {}
         for segment in flat:
             name = candidate(segment)
             if name is not None:
                 assert isinstance(segment, Opaque)
-                sources.setdefault(name, set()).add(segment.source)
+                sources.setdefault(name, {})[segment.source] = None
         # a name shared by different sources is given to none of them, unless the
         # sources are numbered fields
         names: dict[tuple[str, str], str] = {}

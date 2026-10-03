@@ -61,11 +61,16 @@ def _context(
         left_id = right_id = None
         if isinstance(before, Text) and before.text:
             left = " " if before.text[-1].isspace() else before.text[-1]
+        elif isinstance(before, Opaque) and before.kind == "newline":
+            # newlines are whitespace, whether sent as text or as markup
+            left = " "
         elif isinstance(before, Opaque):
             left = "<"
             left_id = id(before)
         if isinstance(after, Text) and after.text:
             right = " " if after.text[0].isspace() else after.text[0]
+        elif isinstance(after, Opaque) and after.kind == "newline":
+            right = " "
         elif isinstance(after, Opaque):
             right = ">"
             right_id = id(after)
@@ -116,7 +121,7 @@ def repair(source: list[Segment], translation: list[Segment]) -> list[Segment]:
                 continue
             if isinstance(before, Text):
                 text = texts[id(before)]
-                stripped = text.rstrip(SPACES)
+                stripped = text.rstrip(" \t")
                 if (
                     left not in ("", " ")
                     and stripped
@@ -131,7 +136,7 @@ def repair(source: list[Segment], translation: list[Segment]) -> list[Segment]:
                 texts[id(before)] = text
             if isinstance(after, Text):
                 text = texts[id(after)]
-                stripped = text.lstrip(SPACES)
+                stripped = text.lstrip(" \t")
                 if (
                     right not in ("", " ")
                     and stripped
@@ -164,6 +169,8 @@ def _rebuild(segments: list[Segment], texts: dict[int, str]) -> list[Segment]:
 
 def match_edges(source: str, translation: str) -> str:
     """Give the translation the source's leading and trailing whitespace."""
+    if not source.strip():
+        return source
     leading = source[: len(source) - len(source.lstrip())]
     trailing = source[len(source.rstrip()) :]
     return leading + translation.strip() + trailing

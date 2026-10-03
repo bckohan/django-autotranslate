@@ -177,3 +177,10 @@ def test_flatten():
         "</i>",
         "</b>",
     ]
+
+
+@pytest.mark.parametrize("text", [" ", "\n", " \n "])
+def test_match_edges_whitespace_only(text):
+    from autotranslate.protect.repair import match_edges
+
+    assert match_edges(text, text) == text
