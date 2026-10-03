@@ -8,6 +8,8 @@ from django.core.management import call_command
 from django.test import TestCase
 
 from autotranslate.management.commands.autotranslate import Command
+from autotranslate.protect.guards import TokenGuard
+from autotranslate.protect.segments import serialize
 from autotranslate.services import TranslatorService
 
 DATA_DIR = Path(__file__).parent / "data"
@@ -24,42 +26,6 @@ class FakeTranslatorService(TranslatorService):
             yield self.translate_string(text, target_language, source_language)
 
 
-class HumanizeTestCase(TestCase):
-    def setUp(self):
-        self.service = TranslatorService()
-
-    def test_named_placeholders(self):
-        humanize = self.service.humanize_placeholders
-        self.assertEqual("foo __item__ bar", humanize("foo %(item)s bar"))
-        self.assertEqual("foo __item_name__ bar", humanize("foo %(item_name)s bar"))
-        self.assertEqual("foo % (item)s bar", humanize("foo % (item)s bar"))
-
-    def test_positional_placeholders(self):
-        humanize = self.service.humanize_placeholders
-        self.assertEqual("foo __item__ bar", humanize("foo %s bar"))
-        self.assertEqual("foo __number__ bar", humanize("foo %d bar"))
-        self.assertEqual("foo __item__ bar __item__", humanize("foo %s bar %s"))
-        self.assertEqual("foo __item____item__", humanize("foo %s%s"))
-
-
-class RestoreTestCase(TestCase):
-    def test_restore_placeholders(self):
-        restore = TranslatorService().restore_placeholders
-        self.assertEqual(
-            "baz %(item)s zilot",
-            restore("foo %(item)s bar", "baz __over__ zilot"),
-        )
-        self.assertEqual(
-            "baz %(item_name)s zilot",
-            restore("foo %(item_name)s bar", "baz __item_name__ zilot"),
-        )
-        self.assertEqual("baz %s zilot", restore("foo %s bar", "baz __item__ zilot"))
-        self.assertEqual(
-            "baz %s%s zilot",
-            restore("foo %s%s bar", "baz __item____item__ zilot"),
-        )
-
-
 class POFileTestCase(TestCase):
     def setUp(self):
         self.cmd = Command()
@@ -68,26 +34,32 @@ class POFileTestCase(TestCase):
         self.cmd.set_fuzzy = False
         self.po = polib.pofile(str(DATA_DIR / "django.po"))
 
+    def sources(self):
+        return [
+            message.source for message in self.cmd.get_messages_to_translate(self.po)
+        ]
+
     def test_should_read_single(self):
-        strings = self.cmd.get_strings_to_translate(self.po)
-        self.assertIn("Location", strings)
+        self.assertIn("Location", self.sources())
 
     def test_should_update_single(self):
-        translations = ["XXXX"]
         entry = self.po[0]
-        self.cmd.update_translations([entry], translations)
+        messages = [self.cmd.service.protect(entry.msgid)]
+        self.cmd.update_translations([entry], messages, ["XXXX"])
         self.assertEqual("XXXX", entry.msgstr)
         self.assertTrue(entry.translated())
 
     def test_should_read_plural(self):
-        strings = self.cmd.get_strings_to_translate(self.po)
-        self.assertIn("City", strings)
-        self.assertIn("Cities", strings)
+        self.assertIn("City", self.sources())
+        self.assertIn("Cities", self.sources())
 
     def test_should_update_plural(self):
-        translations = ["SINGULAR", "PLURAL"]
         entry = self.po[1]
-        self.cmd.update_translations([entry], translations)
+        messages = [
+            self.cmd.service.protect(entry.msgid),
+            self.cmd.service.protect(entry.msgid_plural),
+        ]
+        self.cmd.update_translations([entry], messages, ["SINGULAR", "PLURAL"])
         self.assertEqual("", entry.msgstr)
         self.assertEqual("SINGULAR", entry.msgstr_plural[0])
         self.assertEqual(
@@ -98,9 +70,17 @@ class POFileTestCase(TestCase):
 
     def test_skips_translated_unless_retranslate(self):
         self.po[0].msgstr = "Ort"
-        self.assertNotIn("Location", self.cmd.get_strings_to_translate(self.po))
+        self.assertNotIn("Location", self.sources())
         self.cmd.retranslate = True
-        self.assertIn("Location", self.cmd.get_strings_to_translate(self.po))
+        self.assertIn("Location", self.sources())
+
+    def test_flags_select_formats(self):
+        entry = polib.POEntry(msgid="100%% of %(n)d", flags=["python-format"])
+        po = polib.POFile()
+        po.append(entry)
+        self.assertEqual(
+            "100__x0__ of __n__", self.cmd.get_messages_to_translate(po)[0].encoded
+        )
 
 
 class TranslateMessagesCommandTestCase(TestCase):
@@ -159,37 +139,6 @@ class TranslateMessagesCommandTestCase(TestCase):
                 "--service",
                 "autotranslate.config.language_codes",
             )
-
-
-class BracePlaceholderTestCase(TestCase):
-    def setUp(self):
-        self.service = TranslatorService()
-
-    def test_humanize_brace_placeholders(self):
-        humanize = self.service.humanize_placeholders
-        self.assertEqual("foo __name__ bar", humanize("foo {name} bar"))
-        self.assertEqual("foo __item__ bar", humanize("foo {} bar"))
-        self.assertEqual("{{literal}}", humanize("{{literal}}"))
-
-    def test_restore_named_placeholders_by_name(self):
-        # translations may reorder named placeholders
-        self.assertEqual(
-            "{target} から {file} へ",
-            self.service.restore_placeholders(
-                "Translating {file} into {target}", "__target__ から __file__ へ"
-            ),
-        )
-        self.assertEqual(
-            "%(b)s y %(a)s",
-            self.service.restore_placeholders("%(a)s and %(b)s", "__b__ y __a__"),
-        )
-
-    def test_validate_translation(self):
-        validate = self.service.validate_translation
-        self.assertTrue(validate("{file} into {lang}", "{lang} から {file}"))
-        self.assertFalse(validate("{file} into {lang}", "{Datei} in {lang}"))
-        self.assertFalse(validate("%(name)s saved", "guardado"))
-        self.assertTrue(validate("No placeholders", "Sin marcadores"))
 
 
 class GoogleLanguageMapTestCase(TestCase):
@@ -262,16 +211,37 @@ class LocaleHandlingTestCase(TestCase):
         self.assertEqual("[de] HELLO", self.read_po("de")[0].msgstr)
 
     def test_mismatched_placeholders_discarded(self):
-        # without humanizing, FakeTranslatorService upper-cases the placeholder names
+        class UnguardedGuard(TokenGuard):
+            """Sends placeholders as they are, so the fake service upper cases them."""
+
+            def encode(self, segments):
+                return serialize(segments)
+
         self.make_po("de", ["Hello {name}", "Hello %(name)s", "Plain"])
-        with mock.patch.object(
-            FakeTranslatorService, "humanize_placeholders", lambda self, msgid: msgid
-        ):
+        with mock.patch.object(FakeTranslatorService, "guard", UnguardedGuard()):
             self.translate()
         po = self.read_po("de")
         self.assertEqual("", po[0].msgstr)
         self.assertEqual("", po[1].msgstr)
         self.assertEqual("[de] PLAIN", po[2].msgstr)
+
+    def test_html_and_placeholders(self):
+        messages = self.locale_dir / "de" / "LC_MESSAGES"
+        messages.mkdir(parents=True)
+        po = polib.POFile()
+        po.append(
+            polib.POEntry(
+                msgid='Read <a href="%(url)s">the docs</a>, %(name)s',
+                msgstr="",
+                flags=["python-format"],
+            )
+        )
+        po.save(str(messages / "django.po"))
+        self.translate()
+        self.assertEqual(
+            '[de] READ <a href="%(url)s">THE DOCS</a>, %(name)s',
+            self.read_po("de")[0].msgstr,
+        )
 
 
 class FuzzyHandlingTestCase(TestCase):
@@ -462,7 +432,7 @@ class ProgressBarTestCase(TestCase):
         # messages written while the bar is shown still reach the output
         shutil.rmtree(self.locale_dir / "es")
         with mock.patch.object(
-            FakeTranslatorService, "translate_strings", lambda *args: iter(["%s"] * 3)
+            FakeTranslatorService, "restore", lambda self, message, translation: None
         ):
             stdout, stderr = self.translate("--progress")
         self.assertIn("Discarding translation with mismatched placeholders", stdout)

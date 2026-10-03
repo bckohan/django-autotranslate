@@ -17,6 +17,8 @@ from django.core.management import call_command
 from django.test import TestCase, override_settings
 
 from autotranslate.config import get_translator
+from autotranslate.protect.guards import same_opaques
+from autotranslate.protect.parse import parse
 
 APP_DIR = Path(__file__).parent.parent / "service_app"
 
@@ -88,7 +90,6 @@ class ServiceTestMixin:
             "--no-progress",
         )
 
-        service = get_translator()
         discarded = []
         total = 0
         for locale in LOCALES:
@@ -116,7 +117,10 @@ class ServiceTestMixin:
                         self.assertTrue(translation)
                         self.assertNotRegex(translation, r"&(#\d+|amp|quot|lt|gt);")
                         self.assertTrue(
-                            service.validate_translation(source, translation),
+                            same_opaques(
+                                parse(source, entry.flags),
+                                parse(translation, entry.flags),
+                            ),
                             f"placeholders differ: {source!r} -> {translation!r}",
                         )
 

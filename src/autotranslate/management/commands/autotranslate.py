@@ -27,6 +27,7 @@ from ...config import (
     get_translator,
     language_codes,
 )
+from ...protect.pipeline import Protected
 from ...services import TranslatorService
 
 
@@ -39,8 +40,8 @@ class MessageFile(t.NamedTuple):
     service_language: str
     """The translation service's code for the language"""
     po: polib.POFile
-    strings: list[str]
-    """The (humanized) strings to translate"""
+    messages: list[Protected]
+    """The messages to translate, prepared by the translation service"""
 
 
 class Command(TyperCommand, rich_markup_mode="markdown"):
@@ -246,10 +247,10 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
             for message_file in message_files:
                 by_language.setdefault(message_file.language, []).append(message_file)
 
-            with self.progress_bar(sum(len(mf.strings) for mf in message_files)):
+            with self.progress_bar(sum(len(mf.messages) for mf in message_files)):
                 for language, files in by_language.items():
                     with self.language_progress_bar(
-                        language, sum(len(mf.strings) for mf in files)
+                        language, sum(len(mf.messages) for mf in files)
                     ):
                         for message_file in files:
                             self.translate_file(message_file)
@@ -371,9 +372,9 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
                     continue
 
                 po = polib.pofile(po_file)
-                strings = self.get_strings_to_translate(po)
-                if strings:
-                    yield MessageFile(po_file, language, service_language, po, strings)
+                messages = self.get_messages_to_translate(po)
+                if messages:
+                    yield MessageFile(po_file, language, service_language, po, messages)
 
     def translate_file(self, message_file: MessageFile):
         """
@@ -398,9 +399,13 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
         # in the same order on the same index
         # viz. [a, b] -> [trans_a, trans_b]
         translated_strings = self.service.translate_strings(
-            message_file.strings, message_file.service_language, self.source_language
+            [message.encoded for message in message_file.messages],
+            message_file.service_language,
+            self.source_language,
         )
-        self.update_translations(message_file.po, self.track(translated_strings))
+        self.update_translations(
+            message_file.po, message_file.messages, self.track(translated_strings)
+        )
         message_file.po.save()
 
     def track(self, translated_strings: t.Iterable[str]) -> t.Iterator[str]:
@@ -439,47 +444,47 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
             return bool(entry.previous_msgid or entry.previous_msgid_plural)
         return not entry.translated()
 
-    def get_strings_to_translate(self, po: polib.POFile) -> list[str]:
-        """Return list of string to translate from po file.
-
-        :param po: POFile object to translate
-        :return: list of string to translate
+    def get_messages_to_translate(self, po: polib.POFile) -> list[Protected]:
         """
-        strings = []
+        Prepare the messages in the message file that need translating. Plural
+        entries add their singular and plural messages.
+
+        :param po: The message file
+        :return: The prepared messages
+        """
+        messages = []
         for entry in po:
             if not self.need_translate(entry):
                 continue
-            strings.append(self.service.humanize_placeholders(entry.msgid))
+            messages.append(self.service.protect(entry.msgid, entry.flags))
             if entry.msgid_plural:
-                strings.append(self.service.humanize_placeholders(entry.msgid_plural))
-        return strings
+                messages.append(self.service.protect(entry.msgid_plural, entry.flags))
+        return messages
 
-    def update_translations(self, entries, translated_strings):
+    def update_translations(
+        self,
+        entries: t.Iterable[polib.POEntry],
+        messages: t.Iterable[Protected],
+        translated_strings: t.Iterable[str],
+    ):
         """
-        Update translations in entries.
+        Update the entries with their translations.
 
-        The order and number of translations should match to get_strings_to_translate()
-        result.
-
-        :param entries: list of entries to translate
-        :type entries: collections.Iterable[polib.POEntry] | polib.POFile
-        :param translated_strings: list of translations
-        :type translated_strings: collections.Iterable[six.text_type]
+        :param entries: The entries to translate
+        :param messages: The prepared messages, as returned by
+            :meth:`get_messages_to_translate` for the entries
+        :param translated_strings: The service's translations of the messages
         """
+        prepared = iter(messages)
         translations = iter(translated_strings)
         for entry in entries:
             if not self.need_translate(entry):
                 continue
 
             if entry.msgid_plural:
-                singular = self.service.fix_translation(entry.msgid, next(translations))
-                plural = self.service.fix_translation(
-                    entry.msgid_plural, next(translations)
-                )
-                if not (
-                    self.check_translation(entry.msgid, singular)
-                    and self.check_translation(entry.msgid_plural, plural)
-                ):
+                singular = self.restore(next(prepared), next(translations))
+                plural = self.restore(next(prepared), next(translations))
+                if singular is None or plural is None:
                     continue
 
                 # fill the first plural form with the entry.msgid translation
@@ -490,10 +495,8 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
                     if k != 0:
                         entry.msgstr_plural[k] = plural
             else:
-                translation = self.service.fix_translation(
-                    entry.msgid, next(translations)
-                )
-                if not self.check_translation(entry.msgid, translation):
+                translation = self.restore(next(prepared), next(translations))
+                if translation is None:
                     continue
                 entry.msgstr = translation
 
@@ -510,21 +513,22 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
             elif "fuzzy" in entry.flags:
                 entry.flags.remove("fuzzy")
 
-    def check_translation(self, msgid: str, translation: str) -> bool:
+    def restore(self, message: Protected, translation: str) -> str | None:
         """
-        Check that the translation is safe to use, warning if it is not.
+        Restore the placeholders and markup in a translation, warning if the
+        translation must be discarded because they did not survive translation.
 
-        :param msgid: The source message
-        :param translation: The translated message
-        :return: True if the translation may be used
+        :param message: The prepared message
+        :param translation: The service's translation of the message
+        :return: The translated message, or None if it was discarded
         """
-        if self.service.validate_translation(msgid, translation):
-            return True
-        self.message(
-            _(
-                "Discarding translation with mismatched placeholders: "
-                "{msgid!r} -> {translation!r}"
-            ).format(msgid=msgid, translation=translation),
-            fg="yellow",
-        )
-        return False
+        restored = self.service.restore(message, translation)
+        if restored is None:
+            self.message(
+                _(
+                    "Discarding translation with mismatched placeholders or markup: "
+                    "{msgid!r} -> {translation!r}"
+                ).format(msgid=message.source, translation=translation),
+                fg="yellow",
+            )
+        return restored
