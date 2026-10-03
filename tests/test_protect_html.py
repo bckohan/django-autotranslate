@@ -10,8 +10,8 @@ from autotranslate.protect.segments import (
     Paired,
     Text,
     opaques,
+    flatten,
     serialize,
-    texts,
 )
 
 
@@ -83,7 +83,7 @@ def test_bare_ampersands_stay_text(text):
     segments = html(text)
     assert serialize(segments) == text
     assert not [s for s in opaques(segments) if s.kind == "entity"]
-    assert "&" in "".join(s.text for s in texts(segments))
+    assert "&" in "".join(s.text for s in flatten(segments) if isinstance(s, Text))
 
 
 @pytest.mark.parametrize("text", ["<!DOCTYPE x>", "<?pi?>", "<![CDATA[c]]>", "<!x>"])
@@ -164,3 +164,16 @@ def test_no_quadratic_lexing():
 def test_deep_nesting_falls_back_to_text():
     text = "<b>" * 3000 + "</b>" * 3000
     assert html(text) == [Text(text)]
+
+
+def test_flatten():
+    segments = html("a <b>c <i>d</i></b> e")
+    flat = flatten(segments)
+    assert not any(isinstance(s, Paired) for s in flat)
+    assert serialize(flat) == serialize(segments)
+    assert [s.source for s in flat if isinstance(s, Opaque)] == [
+        "<b>",
+        "<i>",
+        "</i>",
+        "</b>",
+    ]

@@ -10,8 +10,8 @@ import html as html_lib
 import re
 from collections import Counter
 
-from .html import VOID_ELEMENTS
-from .segments import Opaque, Paired, Segment, Text, merge_text, opaques
+from .html import ATTRIBUTE, LEXER, VOID_ELEMENTS
+from .segments import Opaque, Paired, Segment, Text, flatten, merge_text, opaques
 
 
 class Guard:
@@ -43,19 +43,6 @@ def same_opaques(source: list[Segment], translation: list[Segment]) -> bool:
     return count(source) == count(translation)
 
 
-def _flat(segments: list[Segment]) -> list[Segment]:
-    """Flatten paired segments into their opaque start and end markup."""
-    flat: list[Segment] = []
-    for segment in segments:
-        if isinstance(segment, Paired):
-            flat.append(segment.start)
-            flat.extend(_flat(segment.children))
-            flat.append(segment.end)
-        else:
-            flat.append(segment)
-    return flat
-
-
 #: Placeholder names that survive a round trip through the token pattern
 _TOKEN_NAME = re.compile(r"[A-Za-z0-9]+(?:_[A-Za-z0-9]+)*")
 _FIELD_NUMBER = re.compile(r"\{(\d+)")
@@ -76,7 +63,7 @@ class TokenGuard(Guard):
     TOKEN = re.compile(r"__(\w+?)__")
 
     def _tokens(self, segments: list[Segment]) -> list[tuple[str, Opaque]]:
-        flat = _flat(segments)
+        flat = flatten(segments)
         # tokens already in the source's text must not collide with ours
         used = {
             match.group(1).lower()
@@ -138,7 +125,7 @@ class TokenGuard(Guard):
     def encode(self, segments: list[Segment]) -> str:
         tokens = iter(self._tokens(segments))
         parts = []
-        for segment in _flat(segments):
+        for segment in flatten(segments):
             if isinstance(segment, Text):
                 parts.append(segment.text)
             elif isinstance(segment, Opaque) and segment.kind == "newline":
@@ -203,27 +190,9 @@ class TokenGuard(Guard):
         return decoded if same_opaques(segments, decoded) else None
 
 
-_NAME = r"[A-Za-z][A-Za-z0-9:-]*"
-_ATTR = r"""[^\s"'<>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?"""
-
-_MARKUP = re.compile(
-    rf"""
-    (?P<comment><!--.*?-->)
-    |(?P<declaration><!\[CDATA\[.*?\]\]>|<![^>]*>|<\?[^>]*>)
-    |(?P<end></(?P<end_name>{_NAME})\s*>)
-    |(?P<start><(?P<start_name>{_NAME})(?P<attrs>(?:\s+{_ATTR})*)\s*(?P<slash>/)?>)
-    """,
-    re.DOTALL | re.VERBOSE,
-)
-
-_ATTRIBUTE = re.compile(
-    r"""([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?"""
-)
-
-
 def _id(attrs: str) -> str | None:
     """The value of the id attribute in a start tag's attributes, if any."""
-    for match in _ATTRIBUTE.finditer(attrs):
+    for match in ATTRIBUTE.finditer(attrs):
         if match.group(1).lower() == "id":
             value = next((g for g in match.groups()[1:] if g is not None), "")
             return html_lib.unescape(value)
@@ -294,7 +263,10 @@ class _HTMLDecoder:
 
     def feed(self, translation: str) -> list[Segment] | None:
         end = 0
-        for match in _MARKUP.finditer(translation):
+        for match in LEXER.finditer(translation):
+            if match.group("entity"):
+                # entities stay in the text, which is unescaped
+                continue
             self._text(translation[end : match.start()])
             end = match.end()
             if match.group("start_name"):

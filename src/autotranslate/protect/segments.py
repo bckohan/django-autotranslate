@@ -64,24 +64,27 @@ def serialize(segments: t.Iterable[Segment]) -> str:
     return "".join(parts)
 
 
+def flatten(segments: t.Iterable[Segment]) -> list[Segment]:
+    """
+    The segments as a flat list of :class:`Text` and :class:`Opaque`, with each
+    :class:`Paired` expanded to its start, its children and its end.
+    """
+    flat: list[Segment] = []
+    for segment in segments:
+        if isinstance(segment, Paired):
+            flat.append(segment.start)
+            flat.extend(flatten(segment.children))
+            flat.append(segment.end)
+        else:
+            flat.append(segment)
+    return flat
+
+
 def opaques(segments: t.Iterable[Segment]) -> t.Iterator[Opaque]:
     """Every :class:`Opaque` in the segments, in order, including paired markup."""
-    for segment in segments:
+    for segment in flatten(segments):
         if isinstance(segment, Opaque):
             yield segment
-        elif isinstance(segment, Paired):
-            yield segment.start
-            yield from opaques(segment.children)
-            yield segment.end
-
-
-def texts(segments: t.Iterable[Segment]) -> t.Iterator[Text]:
-    """Every :class:`Text` in the segments, in order."""
-    for segment in segments:
-        if isinstance(segment, Text):
-            yield segment
-        elif isinstance(segment, Paired):
-            yield from texts(segment.children)
 
 
 def merge_text(segments: t.Iterable[Segment]) -> list[Segment]:

@@ -35,15 +35,25 @@ VOID_ELEMENTS = {
     "wbr",
 }
 
-_NAME = r"[A-Za-z][A-Za-z0-9:-]*"
+#: A tag name
+NAME = r"[A-Za-z][A-Za-z0-9:-]*"
 
-_TOKEN = re.compile(
+#: One attribute of a start tag, with its optional value
+ATTRIBUTE_SOURCE = r"""[^\s"'<>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?"""
+
+#: Captures the name and value (in one of three groups) of an attribute
+ATTRIBUTE = re.compile(
+    r"""([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?"""
+)
+
+#: Lexes comments, declarations, tags (``start`` with ``start_name``, ``attrs`` and
+#: ``slash`` or ``end`` with ``end_name``) and character references (``entity``)
+LEXER = re.compile(
     rf"""
     (?P<comment><!--.*?-->)
     |(?P<declaration><!\[CDATA\[.*?\]\]>|<![^>]*>|<\?[^>]*>)
-    |(?P<end></(?P<end_name>{_NAME})\s*>)
-    |(?P<start><(?P<start_name>{_NAME})
-        (?:\s+[^\s"'<>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*
+    |(?P<end></(?P<end_name>{NAME})\s*>)
+    |(?P<start><(?P<start_name>{NAME})(?P<attrs>(?:\s+{ATTRIBUTE_SOURCE})*)
         \s*(?P<slash>/)?>)
     |(?P<entity>&(?:[A-Za-z][A-Za-z0-9]*|\#[0-9]+|\#[xX][0-9A-Fa-f]+);)
     """,
@@ -63,7 +73,7 @@ def html(text: str) -> list[Segment]:
     Tokenize the HTML in a message. Messages that do not contain HTML are returned as
     text.
     """
-    if not _TOKEN.search(text):
+    if not LEXER.search(text):
         return [Text(text)]
     try:
         return _tokenize(text)
@@ -83,7 +93,7 @@ def _tokenize(text: str) -> list[Segment]:
         stack[-1].children.extend(element.children)
 
     position = 0
-    for match in _TOKEN.finditer(text):
+    for match in LEXER.finditer(text):
         if match.start() > position:
             stack[-1].children.append(Text(text[position : match.start()]))
         position = match.end()

@@ -10,7 +10,7 @@ where the source had a space between a word and the segment.
 
 import unicodedata
 
-from .segments import Opaque, Paired, Segment, Text, merge_text
+from .segments import Opaque, Paired, Segment, Text, flatten, merge_text
 
 # scripts that are written without spaces between words
 NO_SPACE_SCRIPTS = (
@@ -41,19 +41,6 @@ def _is_spaced_letter(char: str) -> bool:
     return not name.startswith(NO_SPACE_SCRIPTS)
 
 
-def _boundaries(segments: list[Segment]) -> list[Segment]:
-    """Flatten into text and opaque markers, paired markup becoming its tags."""
-    flat: list[Segment] = []
-    for segment in segments:
-        if isinstance(segment, Paired):
-            flat.append(segment.start)
-            flat.extend(_boundaries(segment.children))
-            flat.append(segment.end)
-        else:
-            flat.append(segment)
-    return flat
-
-
 def _context(
     segments: list[Segment],
 ) -> dict[int, tuple[str, str, int | None, int | None]]:
@@ -63,7 +50,7 @@ def _context(
     A space between a word and the segment is recorded as " ". The identities of
     directly adjacent opaque segments are recorded too.
     """
-    flat = _boundaries(segments)
+    flat = flatten(segments)
     context = {}
     for index, segment in enumerate(flat):
         if not isinstance(segment, Opaque):
@@ -98,7 +85,7 @@ def repair(source: list[Segment], translation: list[Segment]) -> list[Segment]:
     context = _context(source)
 
     def fix(segments: list[Segment]) -> list[Segment]:
-        flat = _boundaries(segments)
+        flat = flatten(segments)
         texts = {id(seg): seg.text for seg in flat if isinstance(seg, Text)}
         for index, segment in enumerate(flat):
             if not isinstance(segment, Opaque) or id(segment) not in context:
