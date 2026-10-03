@@ -16,6 +16,9 @@ v2.0.0 (unreleased)
   ``progress`` extra to use it.
 * ``AUTOTRANSLATE_SERVICE`` may now be a dictionary with a ``BACKEND`` import path
   and ``OPTIONS`` that configure the service.
+* Django language codes are matched to each service's language codes, and
+  languages a service does not support are skipped. Use the ``language_map``
+  option to add or override mappings.
 * **Breaking:** ``GOOGLE_TRANSLATE_KEY`` has been removed, set the ``api_key`` option
   of ``GoogleAPITranslatorService`` instead.
 * **Breaking:** the ``AUTOTRANSLATE_TRANSLATOR_SERVICE`` setting has been removed, use

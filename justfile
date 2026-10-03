@@ -18,7 +18,7 @@ manage *COMMAND:
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "tests.settings")
     management.execute_from_command_line(["just manage", *shlex.split("{{ COMMAND }}")])
 
-# machine translate this app's messages into all languages Django supports (free google)
+# machine translate this app's messages into all languages Django supports (paid google, set GOOGLE_TRANSLATE_API_KEY)
 [script]
 translate *OPTS:
     import os
@@ -28,21 +28,15 @@ translate *OPTS:
     from django.conf import global_settings
     from django.core.management import call_command
     from django.utils.translation import to_locale
-    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "tests.settings")
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "tests.translate")
     django.setup()
     # English is the source language
     locales = sorted({to_locale(code) for code, _ in global_settings.LANGUAGES if not code.startswith("en")})
     os.chdir(Path("src") / "autotranslate")
     Path("locale").mkdir(exist_ok=True)
     call_command("makemessages", locale=locales, no_obsolete=True, verbosity=0)
-    call_command(
-        "autotranslate",
-        "--path",
-        "locale",
-        "--service",
-        "autotranslate.services.GoogleTranslatorService",
-        *shlex.split("{{ OPTS }}"),
-    )
+    # uses the service configured in tests/translate.py
+    call_command("autotranslate", "--path", "locale", *shlex.split("{{ OPTS }}"))
     call_command("compilemessages", verbosity=0)
 
 # install the uv package manager

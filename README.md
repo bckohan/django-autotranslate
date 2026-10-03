@@ -78,7 +78,7 @@ AUTOTRANSLATE_SERVICE = {
 }
 ```
 
-- Free Google Translate (default). The ``OPTIONS`` tune how requests are retried and how Django language codes map onto Google's:
+- Free Google Translate (default). The ``OPTIONS`` tune how requests are retried:
 
 ```python
 AUTOTRANSLATE_SERVICE = {
@@ -87,7 +87,27 @@ AUTOTRANSLATE_SERVICE = {
         "retries": 3,  # retries for network errors and rejected requests
         "retry_delay": 1.0,  # seconds before retrying a network error (doubles)
         "rate_limit_delay": 30.0,  # seconds before retrying a rejected request (doubles)
-        "language_map": {"nb": "no"},  # Django code -> Google code (None = unsupported)
+    },
+}
+```
+
+#### Language codes
+
+Django identifies languages with lower case [BCP 47](https://www.rfc-editor.org/info/bcp47) language tags (e.g. ``pt-br``, ``zh-hans``), which the services spell differently. Each Django language is matched to the service's languages by:
+
+1. The service's built in exceptions, e.g. ``zh-hans`` is ``zh-CN`` for Google, ``zh`` for Amazon, and Django's ``pt`` (European Portuguese) is ``pt-PT`` for the paid services, whose ``pt`` is Brazilian.
+2. A case insensitive match against the languages the service supports.
+3. Dropping region subtags, e.g. ``pt-br`` becomes ``pt``. Script subtags are never dropped, so ``sr-latn`` (Latin script Serbian) is not translated as Cyrillic Serbian.
+
+Languages that do not match are skipped. Every service accepts a ``language_map`` option to add or override exceptions, map a language to ``None`` to skip it:
+
+```python
+AUTOTRANSLATE_SERVICE = {
+    "BACKEND": "autotranslate.services.GoogleAPITranslatorService",
+    "OPTIONS": {
+        "api_key": "<google-api-key>",
+        # use Brazilian Portuguese for pt and skip Argentinian Spanish
+        "language_map": {"pt": "pt", "es-ar": None},
     },
 }
 ```

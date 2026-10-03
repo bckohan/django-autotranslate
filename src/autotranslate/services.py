@@ -3,6 +3,7 @@ import contextlib
 import re
 import time
 import typing as t
+from functools import cached_property
 
 from django.core.exceptions import ImproperlyConfigured
 from django.utils.translation import gettext as _
@@ -43,7 +44,20 @@ class TranslatorService:
     :meth:`__exit__`, and must still work when used outside of a ``with`` block.
     """
 
-    supported_languages: t.ClassVar[list[str]] = []
+    default_language_map: t.ClassVar[dict[str, str | None]] = {}
+    """
+    Django language codes that do not map onto the service's language codes by the
+    rules in :meth:`service_language`. None marks languages the service does not
+    support.
+    """
+
+    def __init__(self, *, language_map: dict[str, str | None] | None = None):
+        """
+        :param language_map: Mappings of Django language codes to the service's
+            language codes (or None if the service does not support the language).
+            These are added to, or override, :attr:`default_language_map`.
+        """
+        self.language_map = {**self.default_language_map, **(language_map or {})}
 
     def __enter__(self) -> t.Self:
         """
@@ -51,16 +65,68 @@ class TranslatorService:
         """
         return self
 
+    def supported_languages(self) -> t.Collection[str] | None:
+        """
+        The language codes this service supports. Override this to enable language
+        code matching in :meth:`service_language`. It is called at most once per
+        service instance.
+
+        :return: The service's language codes, or None if they are not known.
+        """
+        return None
+
+    @cached_property
+    def _supported_languages(self) -> dict[str, str] | None:
+        # lower case code -> the service's code
+        supported = self.supported_languages()
+        if supported is None:
+            return None
+        return {code.lower(): code for code in supported}
+
     def service_language(self, language: str) -> str | None:
         """
         Map a Django language code (e.g. ``pt-br``) to the code this service uses
-        for that language.
+        for that language. Django language codes are lower case BCP 47 language
+        tags. The service's code is resolved in this order:
+
+        1. The language map - :attr:`default_language_map` plus any
+           ``language_map`` option.
+        2. A case insensitive match against :meth:`supported_languages`.
+        3. Dropping region subtags until a supported code is found (e.g. ``pt-br``
+           -> ``pt``). Script subtags are never dropped because the result would
+           be in the wrong writing system (e.g. ``sr-latn`` -> ``sr`` is Cyrillic).
+
+        If the service's supported languages are not known, the Django language
+        code is used as is.
 
         :param language: The Django language code
         :return: The service's code for the language, or None if the service does
             not support the language.
         """
-        return language
+        language = language.lower()
+        language_map = {
+            code.lower(): mapped
+            for code, mapped in getattr(
+                self, "language_map", self.default_language_map
+            ).items()
+        }
+        if language in language_map:
+            return language_map[language]
+
+        supported = self._supported_languages
+        if supported is None:
+            return language
+
+        subtags = language.split("-")
+        while subtags:
+            candidate = "-".join(subtags)
+            if candidate in supported:
+                return supported[candidate]
+            # script subtags are 4 letters (ISO 15924)
+            if len(subtags) == 1 or len(subtags[-1]) == 4:
+                break
+            subtags.pop()
+        return None
 
     def __exit__(self, exc_type, exc_value, traceback) -> None:
         """
@@ -179,9 +245,7 @@ class GoogleTranslatorService(TranslatorService):
     # usually because we are being rate limited (doubled for each retry)
     rate_limit_delay: float = 30.0
 
-    # Django language codes that do not map directly onto a Google language code.
-    # None marks languages Google does not support (e.g. Google's Serbian is
-    # Cyrillic only, so it cannot be used for sr-latn).
+    # Google's Serbian is Cyrillic only, so it cannot be used for sr-latn
     default_language_map: t.ClassVar[dict[str, str | None]] = {
         "zh-hans": "zh-cn",
         "zh-hant": "zh-tw",
@@ -209,25 +273,18 @@ class GoogleTranslatorService(TranslatorService):
             codes (or None if Google does not support the language). These are
             added to, or override, :attr:`default_language_map`.
         """
+        super().__init__(language_map=language_map)
         if retries is not None:
             self.retries = retries
         if retry_delay is not None:
             self.retry_delay = retry_delay
         if rate_limit_delay is not None:
             self.rate_limit_delay = rate_limit_delay
-        self.language_map = {**self.default_language_map, **(language_map or {})}
 
-    def service_language(self, language: str) -> str | None:
+    def supported_languages(self) -> t.Collection[str]:
         import googletrans
 
-        language = language.lower()
-        if language in self.language_map:
-            return self.language_map[language]
-        if language in googletrans.LANGUAGES:
-            return language
-        # fall back to the base language for regional variants (e.g. pt-br -> pt)
-        base = language.split("-")[0]
-        return base if base in googletrans.LANGUAGES else None
+        return googletrans.LANGUAGES.keys()
 
     @staticmethod
     async def _open_translator():
@@ -339,12 +396,32 @@ class GoogleAPITranslatorService(TranslatorService):
     https://github.com/google/google-api-python-client
     """
 
-    def __init__(self, *, api_key: str | None = None, max_segments: int = 128):
+    # Google's Serbian is Cyrillic only, so it cannot be used for sr-latn. Django's
+    # pt is European Portuguese, Google's is Brazilian.
+    default_language_map: t.ClassVar[dict[str, str | None]] = {
+        "pt": "pt-PT",
+        "zh-hans": "zh-CN",
+        "zh-hant": "zh-TW",
+        "nb": "no",
+        "sr-latn": None,
+    }
+
+    def __init__(
+        self,
+        *,
+        api_key: str | None = None,
+        max_segments: int = 128,
+        language_map: dict[str, str | None] | None = None,
+    ):
         """
         :param api_key: Your Google Cloud Translation API key (required).
         :param max_segments: The maximum number of strings to send in each request.
             The API rejects requests with more than 128.
+        :param language_map: Mappings of Django language codes to Google language
+            codes (or None if Google does not support the language). These are
+            added to, or override, :attr:`default_language_map`.
         """
+        super().__init__(language_map=language_map)
         if not api_key:
             raise ImproperlyConfigured(
                 _("The `{option}` option is required by `{service}`.").format(
@@ -362,6 +439,10 @@ class GoogleAPITranslatorService(TranslatorService):
 
         self.service = build("translate", "v2", developerKey=api_key)
         self.max_segments = max_segments
+
+    def supported_languages(self) -> t.Collection[str]:
+        response = self.service.languages().list().execute()
+        return [language["language"] for language in response["languages"]]
 
     def translate_string(
         self, text: str, target_language: str, source_language: str = "en"
@@ -399,13 +480,29 @@ class AmazonTranslateTranslatorService(TranslatorService):
     https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/translate.html
     """
 
-    def __init__(self, **client_options):
+    # Amazon has no Latin script Serbian. Django's pt is European Portuguese,
+    # Amazon's is Brazilian.
+    default_language_map: t.ClassVar[dict[str, str | None]] = {
+        "pt": "pt-PT",
+        "zh-hans": "zh",
+        "zh-hant": "zh-TW",
+        "nb": "no",
+        "sr-latn": None,
+    }
+
+    def __init__(
+        self, *, language_map: dict[str, str | None] | None = None, **client_options
+    ):
         """
+        :param language_map: Mappings of Django language codes to Amazon language
+            codes (or None if Amazon does not support the language). These are
+            added to, or override, :attr:`default_language_map`.
         :param client_options: Passed to :func:`boto3.client` (e.g. ``region_name``,
             ``aws_access_key_id``, ``aws_secret_access_key``). Anything not given
             is found by boto3 the usual way (environment variables, ``~/.aws``
             config files, instance roles, ...).
         """
+        super().__init__(language_map=language_map)
         try:
             import boto3
         except ImportError as ie:
@@ -416,6 +513,16 @@ class AmazonTranslateTranslatorService(TranslatorService):
             ) from ie
 
         self.service = boto3.client("translate", **client_options)
+
+    def supported_languages(self) -> t.Collection[str]:
+        languages: list[str] = []
+        kwargs: dict[str, str] = {}
+        while True:
+            response = self.service.list_languages(**kwargs)
+            languages.extend(lang["LanguageCode"] for lang in response["Languages"])
+            if not response.get("NextToken"):
+                return languages
+            kwargs = {"NextToken": response["NextToken"]}
 
     def translate_string(
         self, text: str, target_language: str, source_language: str = "en"
