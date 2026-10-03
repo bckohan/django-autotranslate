@@ -46,6 +46,11 @@ class TranslatorService:
     default replaces them with word-like tokens. Services that translate HTML and
     honour ``translate="no"`` should use
     :class:`~autotranslate.protect.guards.HTMLGuard`.
+
+    The guard is shared by all instances of the service class, so custom guards
+    must not keep per-call state on ``self``. Custom guards subclass
+    :class:`~autotranslate.protect.guards.Guard`, implement ``encode`` and
+    ``decode`` and set ``content_type``.
     """
 
     def __init__(self, *, language_map: dict[str, str | None] | None = None):
