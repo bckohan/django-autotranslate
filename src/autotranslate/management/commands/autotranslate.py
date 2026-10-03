@@ -492,6 +492,8 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
 
         def next_pair() -> tuple[Protected, str]:
             nonlocal sent, received
+            # messages must come from get_messages_to_translate for these same
+            # entries, otherwise this raises StopIteration
             message = next(prepared)
             sent += 1
             try:

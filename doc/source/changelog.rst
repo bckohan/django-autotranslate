@@ -35,7 +35,11 @@ v2.0.0 (unreleased)
 * **Breaking:** ``TranslatorService.humanize_placeholders``,
   ``restore_placeholders``, ``validate_translation`` and ``fix_translation`` have
   been replaced by ``TranslatorService.protect`` and ``TranslatorService.restore``
-  and the ``guard`` attribute.
+  and the ``guard`` attribute. The command's API changed to match:
+  ``get_strings_to_translate`` is now ``get_messages_to_translate``,
+  ``check_translation`` is now ``restore``, ``update_translations`` takes
+  ``(entries, messages, translated_strings)`` and ``MessageFile.strings`` is now
+  ``MessageFile.messages``.
 
 v1.3.0 (2024-08-23)
 ===================

@@ -49,11 +49,17 @@ Placeholder and markup protection
 .. automodule:: autotranslate.protect.pipeline
     :members:
 
+.. automodule:: autotranslate.protect.parse
+    :members: parse, newlines
+
 .. automodule:: autotranslate.protect.segments
     :members:
 
 .. automodule:: autotranslate.protect.guards
     :members: Guard, TokenGuard, HTMLGuard, same_opaques
+
+.. automodule:: autotranslate.protect.repair
+    :members: repair, match_edges
 
 .. automodule:: autotranslate.protect.formats
     :members: printf, brace, tokenizers_for
