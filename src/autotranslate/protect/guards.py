@@ -56,13 +56,21 @@ def _flat(segments: list[Segment]) -> list[Segment]:
     return flat
 
 
+#: Placeholder names that survive a round trip through the token pattern
+_TOKEN_NAME = re.compile(r"[A-Za-z0-9]+(?:_[A-Za-z0-9]+)*")
+_FIELD_NUMBER = re.compile(r"\{(\d+)")
+
+
 class TokenGuard(Guard):
     """
     For services that only translate plain text. Opaque segments are replaced with
     word-like tokens: ``__name__`` for named placeholders, ``__item__`` and
     ``__number__`` for unnamed ones and ``__x0__``, ``__x1__``, ... for markup.
-    Newlines are sent as is. Tokens are restored by name, or in order when names
-    repeat.
+    Placeholders that share a name but not a source get a token each
+    (``{0}`` and ``{1}`` are ``__item0__`` and ``__item1__``, other clashes get
+    ``__xN__`` tokens), identical placeholders share a token. Newlines are sent as
+    is. Tokens are restored by name, or in order when names repeat, and the
+    translation is rejected if its markup is not properly nested.
     """
 
     TOKEN = re.compile(r"__(\w+?)__")
@@ -76,34 +84,55 @@ class TokenGuard(Guard):
             if isinstance(segment, Text)
             for match in self.TOKEN.finditer(segment.text)
         }
-        named = []
-        for segment in flat:
+
+        def candidate(segment: Segment) -> str | None:
             if (
                 isinstance(segment, Opaque)
                 and segment.kind in {"printf", "brace"}
-                and re.fullmatch(r"\w+", segment.name)
+                and _TOKEN_NAME.fullmatch(segment.name)
                 and segment.name.lower() not in used
             ):
-                named.append(segment.name.lower())
-        used.update(named)
+                return segment.name.lower()
+            return None
+
+        sources: dict[str, set[str]] = {}
+        for segment in flat:
+            name = candidate(segment)
+            if name is not None:
+                assert isinstance(segment, Opaque)
+                sources.setdefault(name, set()).add(segment.source)
+        # a name shared by different sources is given to none of them, unless the
+        # sources are numbered fields
+        names: dict[tuple[str, str], str] = {}
+        taken = set(used)
+        for name, group in sources.items():
+            if len(group) == 1:
+                names[(name, next(iter(group)))] = name
+                taken.add(name)
+        taken.update(sources)
+        for name, group in sources.items():
+            if len(group) == 1 or name != "item":
+                continue
+            for source in group:
+                number = _FIELD_NUMBER.match(source)
+                if number and f"item{number.group(1)}" not in taken:
+                    names[(name, source)] = f"item{number.group(1)}"
+                    taken.add(f"item{number.group(1)}")
         tokens = []
-        markup = 0
+        generated = 0
         for segment in flat:
             if not isinstance(segment, Opaque) or segment.kind == "newline":
                 continue
-            if (
-                segment.kind in {"printf", "brace"}
-                and re.fullmatch(r"\w+", segment.name)
-                and segment.name.lower() in named
-            ):
-                tokens.append((segment.name.lower(), segment))
+            name = candidate(segment)
+            if name is not None and (name, segment.source) in names:
+                tokens.append((names[(name, segment.source)], segment))
             else:
                 # markup, and placeholders that cannot be named, get a name that
                 # no placeholder or literal token in the source uses
-                while f"x{markup}" in used:
-                    markup += 1
-                tokens.append((f"x{markup}", segment))
-                markup += 1
+                while f"x{generated}" in taken:
+                    generated += 1
+                tokens.append((f"x{generated}", segment))
+                taken.add(f"x{generated}")
         return tokens
 
     def encode(self, segments: list[Segment]) -> str:
@@ -121,23 +150,56 @@ class TokenGuard(Guard):
     def decode(self, translation: str, segments: list[Segment]) -> list[Segment] | None:
         remaining = self._tokens(segments)
         known = {token for token, _ in remaining}
-        decoded: list[Segment] = []
+        starts: dict[int, Paired] = {}
+        ends: dict[int, Paired] = {}
+
+        def index(items: list[Segment]) -> None:
+            for item in items:
+                if isinstance(item, Paired):
+                    starts[id(item.start)] = ends[id(item.end)] = item
+                    index(item.children)
+
+        index(segments)
+        # open elements and the content decoded inside each
+        stack: list[tuple[Paired | None, list[Segment]]] = [(None, [])]
+
+        def place(segment: Segment) -> bool:
+            if isinstance(segment, Opaque) and id(segment) in starts:
+                stack.append((starts[id(segment)], []))
+            elif isinstance(segment, Opaque) and id(segment) in ends:
+                paired, children = stack[-1]
+                if paired is None or paired is not ends[id(segment)]:
+                    # an end tag out of order
+                    return False
+                stack.pop()
+                stack[-1][1].append(
+                    Paired(paired.start, paired.end, merge_text(children))
+                )
+            else:
+                stack[-1][1].append(segment)
+            return True
+
         end = 0
         for match in self.TOKEN.finditer(translation):
             name = match.group(1).lower()
             if name not in known:
                 continue
-            index = next(
-                (idx for idx, (token, _) in enumerate(remaining) if token == name), None
+            position = next(
+                (idx for idx, (token, _) in enumerate(remaining) if token == name),
+                None,
             )
-            if index is None:
+            if position is None:
                 # the service duplicated a token
                 return None
-            decoded.append(Text(translation[end : match.start()]))
-            decoded.append(remaining.pop(index)[1])
+            place(Text(translation[end : match.start()]))
+            if not place(remaining.pop(position)[1]):
+                return None
             end = match.end()
-        decoded.append(Text(translation[end:]))
-        decoded = merge_text(decoded)
+        place(Text(translation[end:]))
+        if len(stack) != 1:
+            # markup left open
+            return None
+        decoded = merge_text(stack[0][1])
         return decoded if same_opaques(segments, decoded) else None
 
 

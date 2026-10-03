@@ -286,3 +286,52 @@ def test_repair_respects_reordering():
     out = restore(protected, "__a__ __c__ e __b__")
     assert out == "%(a)s %(c)s e %(b)s"
     assert restore(protected, "__a____b__ e __c__") == "%(a)s%(b)s e %(c)s"
+
+
+@pytest.mark.parametrize(
+    "source, translation, expected",
+    [
+        # end before start
+        ("<b>Hello</b> world", "__x1__Hello__x0__ world", None),
+        # crossed nesting
+        ("<b><i>Hi</i></b>", "__x0____x1__Hi__x3____x2__", None),
+        # well formed, reordered
+        ("<b>Hello</b> world", "mundo __x0__Hola__x1__", "mundo <b>Hola</b>"),
+        ("<b><i>Hi</i></b>", "__x0____x1__Hola__x2____x3__", "<b><i>Hola</i></b>"),
+    ],
+)
+def test_token_guard_markup_structure(source, translation, expected):
+    assert restore(protect(source, TOKEN), translation) == expected
+
+
+def test_token_guard_unclosed_markup():
+    assert restore(protect("<b>Hello</b>", TOKEN), "__x0__Hola") is None
+
+
+def test_token_guard_positional_fields_keep_identity():
+    protected = protect("{0} of {1}", TOKEN, ["python-brace-format"])
+    assert protected.encoded == "__item0__ of __item1__"
+    assert restore(protected, "__item1__的__item0__") == "{1}的{0}"
+
+
+def test_token_guard_attribute_fields_keep_identity():
+    protected = protect("{user.first} {user.last}", TOKEN, ["python-brace-format"])
+    names = re.findall(r"__(\w+?)__", protected.encoded)
+    assert len(names) == 2 and len(set(names)) == 2
+    assert (
+        restore(protected, f"__{names[1]}__, __{names[0]}__")
+        == "{user.last}, {user.first}"
+    )
+
+
+def test_token_guard_identical_sources_share_a_name():
+    assert (
+        protect("{name} {name}", TOKEN, ["python-brace-format"]).encoded
+        == "__name__ __name__"
+    )
+
+
+@pytest.mark.parametrize("source", ["%(a__b)s", "%(name_)s", "%(_x)s"])
+def test_token_guard_unnameable_placeholders_round_trip(source):
+    protected = protect(f"Hi {source}!", TOKEN, ["python-format"])
+    assert restore(protected, protected.encoded) == f"Hi {source}!"
