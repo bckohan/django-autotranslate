@@ -1,4 +1,5 @@
 import random
+import time
 
 import pytest
 
@@ -144,3 +145,22 @@ def test_random_round_trip():
         flags = ["python-format", "python-brace-format"]
         assert serialize(html(text)) == text
         assert serialize(parse(text, flags)) == text
+
+
+def test_quote_with_angle_bracket_only_markup():
+    assert html("\n<a title='<'>") == [
+        Text("\n"),
+        Opaque("<a title='<'>", "tag", "a"),
+    ]
+
+
+def test_no_quadratic_lexing():
+    text = "<b>" + "<a " * 5000
+    start = time.perf_counter()
+    assert serialize(html(text)) == text
+    assert time.perf_counter() - start < 1.0
+
+
+def test_deep_nesting_falls_back_to_text():
+    text = "<b>" * 3000 + "</b>" * 3000
+    assert html(text) == [Text(text)]

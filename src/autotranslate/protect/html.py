@@ -35,10 +35,6 @@ VOID_ELEMENTS = {
     "wbr",
 }
 
-LOOKS_LIKE_HTML = re.compile(
-    r"<(?:[a-zA-Z][^<>]*|/[a-zA-Z][^<>]*|!--.*?--|[!?][^<>]*)>|&#?\w+;", re.DOTALL
-)
-
 _NAME = r"[A-Za-z][A-Za-z0-9:-]*"
 
 _TOKEN = re.compile(
@@ -47,7 +43,7 @@ _TOKEN = re.compile(
     |(?P<declaration><!\[CDATA\[.*?\]\]>|<![^>]*>|<\?[^>]*>)
     |(?P<end></(?P<end_name>{_NAME})\s*>)
     |(?P<start><(?P<start_name>{_NAME})
-        (?:\s+[^\s"'>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*
+        (?:\s+[^\s"'<>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*
         \s*(?P<slash>/)?>)
     |(?P<entity>&(?:[A-Za-z][A-Za-z0-9]*|\#[0-9]+|\#[xX][0-9A-Fa-f]+);)
     """,
@@ -64,11 +60,19 @@ class _Element:
 
 def html(text: str) -> list[Segment]:
     """
-    Tokenize the HTML in a message. Messages that do not look like they contain
-    HTML are returned as text.
+    Tokenize the HTML in a message. Messages that do not contain HTML are returned as
+    text.
     """
-    if not LOOKS_LIKE_HTML.search(text):
+    if not _TOKEN.search(text):
         return [Text(text)]
+    try:
+        return _tokenize(text)
+    except RecursionError:
+        # pathologically deep nesting - losing markup protection is better than failing
+        return [Text(text)]
+
+
+def _tokenize(text: str) -> list[Segment]:
 
     stack = [_Element(None, "")]
 
@@ -84,7 +88,6 @@ def html(text: str) -> list[Segment]:
             stack[-1].children.append(Text(text[position : match.start()]))
         position = match.end()
         source = match.group()
-        kind = match.lastgroup
         children = stack[-1].children
         if match["comment"] is not None:
             children.append(Opaque(source, "comment"))
@@ -100,7 +103,6 @@ def html(text: str) -> list[Segment]:
             else:
                 stack.append(_Element(start, tag))
         else:
-            assert kind is not None
             tag = match["end_name"].lower()
             end = Opaque(source, "tag", tag)
             if not any(element.tag == tag for element in stack[1:]):
