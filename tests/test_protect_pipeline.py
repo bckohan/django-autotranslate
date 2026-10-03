@@ -390,3 +390,17 @@ def test_restore_rejects_regrouped_loose_tags():
 def test_restore_keeps_paired_markup():
     protected = protect("Read <a href='/x'>docs</a>", TOKEN)
     assert restore(protected, "Lea __x0__docs__x1__") == "Lea <a href='/x'>docs</a>"
+
+
+def test_paragraph_break_from_html_service():
+    protected = protect("Para one.\n\nPara two.", HTML)
+    translation = (
+        'Absatz eins.<br translate="no" id="0"> <br translate="no" id="1"> Absatz zwei.'
+    )
+    assert restore(protected, translation) == "Absatz eins.\n\nAbsatz zwei."
+
+
+@pytest.mark.parametrize("guard", [HTML, TOKEN])
+def test_paragraph_break_round_trips(guard):
+    protected = protect("Para one.\n\nPara two.", guard)
+    assert restore(protected, protected.encoded) == "Para one.\n\nPara two."

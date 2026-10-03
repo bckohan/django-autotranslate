@@ -61,7 +61,11 @@ def _context(
         left_id = right_id = None
         if isinstance(before, Text) and before.text:
             left = " " if before.text[-1].isspace() else before.text[-1]
-        elif isinstance(before, Opaque) and before.kind == "newline":
+        elif (
+            isinstance(before, Opaque)
+            and before.kind == "newline"
+            and segment.kind != "newline"
+        ):
             # newlines are whitespace, whether sent as text or as markup
             left = " "
         elif isinstance(before, Opaque):
@@ -69,7 +73,11 @@ def _context(
             left_id = id(before)
         if isinstance(after, Text) and after.text:
             right = " " if after.text[0].isspace() else after.text[0]
-        elif isinstance(after, Opaque) and after.kind == "newline":
+        elif (
+            isinstance(after, Opaque)
+            and after.kind == "newline"
+            and segment.kind != "newline"
+        ):
             right = " "
         elif isinstance(after, Opaque):
             right = ">"
