@@ -108,3 +108,8 @@ def test_printf_octal_hex_named_number():
 def test_tokenizers_for_no_flags_combinations():
     assert tokenizers_for(["no-python-brace-format"]) == []
     assert tokenizers_for(["python-format", "no-python-brace-format"]) == [printf]
+
+
+def test_brace_unusual_inputs_round_trip():
+    for text in ["{a[}]}", "{!}}0"]:
+        assert serialize(brace(text)) == text

@@ -14,7 +14,7 @@ import re
 import string
 import typing as t
 
-from .segments import Opaque, Segment, Text, merge_text
+from .segments import Opaque, Segment, Text, merge_text, serialize
 
 PRINTF = re.compile(
     r"%"
@@ -111,7 +111,12 @@ def brace(text: str) -> list[Segment]:
             segments.append(
                 Opaque(source, "brace", name if not name.isdigit() else "item")
             )
-    return merge_text(segments)
+    merged = merge_text(segments)
+    # Safety net: a tokenization that does not reproduce the input exactly would
+    # change the message and corrupt translations, so treat it as plain text.
+    if serialize(merged) != text:
+        return [Text(text)]
+    return merged
 
 
 SIMPLE_BRACE = re.compile(r"(?<!\{)\{(\w*)\}(?!\})")
