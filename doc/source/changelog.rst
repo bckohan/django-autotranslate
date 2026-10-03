@@ -25,6 +25,17 @@ v2.0.0 (unreleased)
   of ``GoogleAPITranslatorService`` instead.
 * **Breaking:** the ``AUTOTRANSLATE_TRANSLATOR_SERVICE`` setting has been removed, use
   ``AUTOTRANSLATE_SERVICE`` instead.
+* Placeholders and HTML markup are parsed using each message's gettext flags and
+  protected from translation, paid services are told not to translate them.
+  More printf (``%.2f``, ``%i``, ``%%``) and brace (``{0:>10}``, ``{{``)
+  placeholders are recognized, and spacing around placeholders is repaired.
+  Translations that lose, change or add placeholders or markup are discarded with
+  a warning, and the command raises an error if a service returns a different
+  number of translations than it was sent.
+* **Breaking:** ``TranslatorService.humanize_placeholders``,
+  ``restore_placeholders``, ``validate_translation`` and ``fix_translation`` have
+  been replaced by ``TranslatorService.protect`` and ``TranslatorService.restore``
+  and the ``guard`` attribute.
 
 v1.3.0 (2024-08-23)
 ===================

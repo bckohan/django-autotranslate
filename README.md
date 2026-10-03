@@ -112,6 +112,16 @@ AUTOTRANSLATE_SERVICE = {
 }
 ```
 
+#### Placeholders and markup
+
+Placeholders and markup in messages are protected from translation:
+
+- ``python-format`` placeholders (``%(name)s``, ``%d``, ``%.2f``, ``%%``) and ``python-brace-format`` placeholders (``{name}``, ``{0:>10}``, ``{{``), chosen by the flags ``makemessages`` writes for each message.
+- HTML: tags, character references (ending in ``;``, so ``AT&T`` is ordinary text) and comments are kept and the text inside elements is translated, except in ``code``, ``kbd``, ``pre``, ``samp``, ``script``, ``style`` and ``var`` elements. Attribute values are not translated.
+- Newlines.
+
+The paid Google and Amazon services are told not to translate them (``translate="no"``). The free Google service only translates plain text, so they are replaced with word-like tokens (``__name__``). Translations that lose or change a placeholder or tag, or add placeholders or markup that were not in the source message, are discarded with a warning and the message is left untranslated.
+
 ## Compatibility Matrix
 
 | autotranslate | django      |
