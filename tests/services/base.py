@@ -148,6 +148,10 @@ class ServiceTestMixin:
                 self.assertIn("Ada", translated[1])
                 self.assertIn("3", translated[3])
                 self.assertIn("3", translated[4])
+                # the markup and the attribute value survive translation
+                self.assertIn('href="/docs"', translated[5])
+                self.assertIn("<a ", translated[5])
+                self.assertIn("</a>", translated[5])
 
 
 def require_env(*names: str) -> None:

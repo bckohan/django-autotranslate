@@ -17,4 +17,6 @@ def messages(name, count):
             "%(count)d file was translated.", "%(count)d files were translated.", count
         )
         % {"count": count},
+        # markup and a placeholder in an attribute
+        _('Read the <a href="%(url)s">documentation</a> first.') % {"url": "/docs"},
     ]
