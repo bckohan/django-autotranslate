@@ -158,7 +158,8 @@ def test_token_guard(source, flags, translation, expected):
             "%s ok 1<2 and a<b & c",
         ),
         ("Saved %s", ["python-format"], f"fim <a {span(0, '%s')}", "fim <a %s"),
-        ("Saved %s", ["python-format"], f"&lt;b&gt; {span(0, '%s')}", "<b> %s"),
+        ("Saved %s", ["python-format"], f"&lt;b&gt; {span(0, '%s')}", None),
+        ("Saved %s", ["python-format"], f"&lt;3 {span(0, '%s')}", "<3 %s"),
         # single quoted, unquoted and upper case markup
         ("Saved %s", ["python-format"], "Salvo <SPAN ID='0'>x</SPAN>", "Salvo %s"),
         ("Saved %s", ["python-format"], "Salvo <span id=0>x</span>", "Salvo %s"),
@@ -264,3 +265,24 @@ def test_repair_idempotent(source, flags, translation):
     decoded = HTML.decode(translation, segments)
     once = repair(segments, decoded)
     assert repair(segments, once) == once
+
+
+@pytest.mark.parametrize(
+    "guard, translation",
+    [
+        # the service added placeholders or markup outside the guards
+        (HTML, f"Salvo {span(0, '%s')} (%s)"),
+        (HTML, f"Salvo {span(0, '%s')} &lt;b&gt;"),
+        (TOKEN, "Salvo __item__ %d"),
+    ],
+)
+def test_restore_rejects_extra_directives(guard, translation):
+    protected = protect("Saved %s", guard, ["python-format"])
+    assert restore(protected, translation) is None
+
+
+def test_repair_respects_reordering():
+    protected = protect("%(a)s%(b)s and %(c)s", TOKEN, ["python-format"])
+    out = restore(protected, "__a__ __c__ e __b__")
+    assert out == "%(a)s %(c)s e %(b)s"
+    assert restore(protected, "__a____b__ e __c__") == "%(a)s%(b)s e %(c)s"

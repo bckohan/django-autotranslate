@@ -13,7 +13,7 @@ Protect a message's placeholders and markup while it is translated:
 import typing as t
 from dataclasses import dataclass
 
-from .guards import Guard
+from .guards import Guard, same_opaques
 from .parse import parse
 from .repair import match_edges, repair
 from .segments import Segment, serialize
@@ -28,6 +28,8 @@ class Protected:
     guard: Guard
     encoded: str
     """The text to send to the translation service"""
+    flags: tuple[str, ...] = ()
+    """The message's gettext flags"""
 
 
 def protect(text: str, guard: Guard, flags: t.Collection[str] = ()) -> Protected:
@@ -39,7 +41,7 @@ def protect(text: str, guard: Guard, flags: t.Collection[str] = ()) -> Protected
     :param flags: The message's gettext flags (e.g. ``python-format``)
     """
     segments = parse(text, flags)
-    return Protected(text, segments, guard, guard.encode(segments))
+    return Protected(text, segments, guard, guard.encode(segments), tuple(flags))
 
 
 def restore(protected: Protected, translation: str) -> str | None:
@@ -54,4 +56,11 @@ def restore(protected: Protected, translation: str) -> str | None:
     decoded = protected.guard.decode(translation, protected.segments)
     if decoded is None:
         return None
-    return match_edges(protected.source, serialize(repair(protected.segments, decoded)))
+    result = match_edges(
+        protected.source, serialize(repair(protected.segments, decoded))
+    )
+    # text the service returned outside the guards may hold extra placeholders
+    # or markup (e.g. ``(%s)`` or unescaped ``&lt;b&gt;``)
+    if not same_opaques(protected.segments, parse(result, protected.flags)):
+        return None
+    return result

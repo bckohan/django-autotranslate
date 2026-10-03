@@ -54,11 +54,14 @@ def _boundaries(segments: list[Segment]) -> list[Segment]:
     return flat
 
 
-def _context(segments: list[Segment]) -> dict[int, tuple[str, str]]:
+def _context(
+    segments: list[Segment],
+) -> dict[int, tuple[str, str, int | None, int | None]]:
     """
     For each opaque segment (by identity), the source text immediately before and
     after it: "" for whitespace or the string edge, else the neighbouring character.
-    A space between a word and the segment is recorded as " ".
+    A space between a word and the segment is recorded as " ". The identities of
+    directly adjacent opaque segments are recorded too.
     """
     flat = _boundaries(segments)
     context = {}
@@ -68,15 +71,18 @@ def _context(segments: list[Segment]) -> dict[int, tuple[str, str]]:
         before = flat[index - 1] if index else None
         after = flat[index + 1] if index + 1 < len(flat) else None
         left = right = ""
+        left_id = right_id = None
         if isinstance(before, Text) and before.text:
             left = " " if before.text[-1].isspace() else before.text[-1]
         elif isinstance(before, Opaque):
             left = "<"
+            left_id = id(before)
         if isinstance(after, Text) and after.text:
             right = " " if after.text[0].isspace() else after.text[0]
         elif isinstance(after, Opaque):
             right = ">"
-        context[id(segment)] = (left, right)
+            right_id = id(after)
+        context[id(segment)] = (left, right, left_id, right_id)
     return context
 
 
@@ -97,18 +103,23 @@ def repair(source: list[Segment], translation: list[Segment]) -> list[Segment]:
         for index, segment in enumerate(flat):
             if not isinstance(segment, Opaque) or id(segment) not in context:
                 continue
-            left, right = context[id(segment)]
+            left, right, left_id, right_id = context[id(segment)]
             before = flat[index - 1] if index else None
             after = flat[index + 1] if index + 1 < len(flat) else None
-            for neighbour, boundary in ((before, left == "<"), (after, right == ">")):
-                # the source had no space between adjacent opaque segments
+            for gap, other, expected in (
+                (index - 1, index - 2, left_id),
+                (index + 1, index + 2, right_id),
+            ):
+                # the source had no space between these adjacent opaque segments
                 if (
-                    boundary
-                    and isinstance(neighbour, Text)
-                    and neighbour.text
-                    and not texts[id(neighbour)].strip(SPACES)
+                    expected is not None
+                    and 0 <= gap < len(flat)
+                    and 0 <= other < len(flat)
+                    and isinstance(flat[gap], Text)
+                    and id(flat[other]) == expected
+                    and not texts[id(flat[gap])].strip(SPACES)
                 ):
-                    texts[id(neighbour)] = ""
+                    texts[id(flat[gap])] = ""
             if segment.kind == "newline":
                 # services add spaces around the <br> newlines are sent as
                 if isinstance(before, Text) and left != " ":
