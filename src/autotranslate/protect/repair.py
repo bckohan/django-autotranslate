@@ -25,6 +25,11 @@ NO_SPACE_SCRIPTS = (
 )
 
 
+# only ordinary whitespace is repaired: no-break spaces (U+00A0, U+202F) are
+# deliberate, e.g. French typography (``« %s »``, ``{file} :``)
+SPACES = " \t\r\n\f\v"
+
+
 def _is_punctuation(char: str) -> bool:
     return unicodedata.category(char)[0] in "PS"
 
@@ -95,6 +100,15 @@ def repair(source: list[Segment], translation: list[Segment]) -> list[Segment]:
             left, right = context[id(segment)]
             before = flat[index - 1] if index else None
             after = flat[index + 1] if index + 1 < len(flat) else None
+            for neighbour, boundary in ((before, left == "<"), (after, right == ">")):
+                # the source had no space between adjacent opaque segments
+                if (
+                    boundary
+                    and isinstance(neighbour, Text)
+                    and neighbour.text
+                    and not texts[id(neighbour)].strip(SPACES)
+                ):
+                    texts[id(neighbour)] = ""
             if segment.kind == "newline":
                 # services add spaces around the <br> newlines are sent as
                 if isinstance(before, Text) and left != " ":
@@ -104,7 +118,7 @@ def repair(source: list[Segment], translation: list[Segment]) -> list[Segment]:
                 continue
             if isinstance(before, Text):
                 text = texts[id(before)]
-                stripped = text.rstrip()
+                stripped = text.rstrip(SPACES)
                 if (
                     left not in ("", " ")
                     and stripped
@@ -119,7 +133,7 @@ def repair(source: list[Segment], translation: list[Segment]) -> list[Segment]:
                 texts[id(before)] = text
             if isinstance(after, Text):
                 text = texts[id(after)]
-                stripped = text.lstrip()
+                stripped = text.lstrip(SPACES)
                 if (
                     right not in ("", " ")
                     and stripped

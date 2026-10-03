@@ -9,8 +9,8 @@ the translation's opaque segments do not match the source's.
 import html as html_lib
 import re
 from collections import Counter
-from html.parser import HTMLParser
 
+from .html import VOID_ELEMENTS
 from .segments import Opaque, Paired, Segment, Text, merge_text, opaques
 
 
@@ -68,16 +68,40 @@ class TokenGuard(Guard):
     TOKEN = re.compile(r"__(\w+?)__")
 
     def _tokens(self, segments: list[Segment]) -> list[tuple[str, Opaque]]:
+        flat = _flat(segments)
+        # tokens already in the source's text must not collide with ours
+        used = {
+            match.group(1).lower()
+            for segment in flat
+            if isinstance(segment, Text)
+            for match in self.TOKEN.finditer(segment.text)
+        }
+        named = []
+        for segment in flat:
+            if (
+                isinstance(segment, Opaque)
+                and segment.kind in {"printf", "brace"}
+                and re.fullmatch(r"\w+", segment.name)
+                and segment.name.lower() not in used
+            ):
+                named.append(segment.name.lower())
+        used.update(named)
         tokens = []
         markup = 0
-        for segment in _flat(segments):
+        for segment in flat:
             if not isinstance(segment, Opaque) or segment.kind == "newline":
                 continue
-            if segment.kind in {"printf", "brace"} and re.fullmatch(
-                r"\w+", segment.name
+            if (
+                segment.kind in {"printf", "brace"}
+                and re.fullmatch(r"\w+", segment.name)
+                and segment.name.lower() in named
             ):
                 tokens.append((segment.name.lower(), segment))
             else:
+                # markup, and placeholders that cannot be named, get a name that
+                # no placeholder or literal token in the source uses
+                while f"x{markup}" in used:
+                    markup += 1
                 tokens.append((f"x{markup}", segment))
                 markup += 1
         return tokens
@@ -96,15 +120,19 @@ class TokenGuard(Guard):
 
     def decode(self, translation: str, segments: list[Segment]) -> list[Segment] | None:
         remaining = self._tokens(segments)
+        known = {token for token, _ in remaining}
         decoded: list[Segment] = []
         end = 0
         for match in self.TOKEN.finditer(translation):
             name = match.group(1).lower()
+            if name not in known:
+                continue
             index = next(
                 (idx for idx, (token, _) in enumerate(remaining) if token == name), None
             )
             if index is None:
-                continue
+                # the service duplicated a token
+                return None
             decoded.append(Text(translation[end : match.start()]))
             decoded.append(remaining.pop(index)[1])
             end = match.end()
@@ -113,18 +141,51 @@ class TokenGuard(Guard):
         return decoded if same_opaques(segments, decoded) else None
 
 
-class _HTMLDecoder(HTMLParser):
-    """Map a service's HTML output back onto the source segments by id."""
+_NAME = r"[A-Za-z][A-Za-z0-9:-]*"
+_ATTR = r"""[^\s"'<>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?"""
+
+_MARKUP = re.compile(
+    rf"""
+    (?P<comment><!--.*?-->)
+    |(?P<declaration><!\[CDATA\[.*?\]\]>|<![^>]*>|<\?[^>]*>)
+    |(?P<end></(?P<end_name>{_NAME})\s*>)
+    |(?P<start><(?P<start_name>{_NAME})(?P<attrs>(?:\s+{_ATTR})*)\s*(?P<slash>/)?>)
+    """,
+    re.DOTALL | re.VERBOSE,
+)
+
+_ATTRIBUTE = re.compile(
+    r"""([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?"""
+)
+
+
+def _id(attrs: str) -> str | None:
+    """The value of the id attribute in a start tag's attributes, if any."""
+    for match in _ATTRIBUTE.finditer(attrs):
+        if match.group(1).lower() == "id":
+            value = next((g for g in match.groups()[1:] if g is not None), "")
+            return html_lib.unescape(value)
+    return None
+
+
+class _HTMLDecoder:
+    """
+    Map a service's HTML output back onto the source segments by id.
+
+    The output is lexed with a regular expression rather than
+    :class:`html.parser.HTMLParser`, which drops text after a raw ``<`` on some
+    Python versions. Anything that is not a well formed tag, comment or
+    declaration is text.
+    """
 
     def __init__(self, by_id: dict[str, Segment]):
-        super().__init__(convert_charrefs=True)
         self.by_id = by_id
         self.stack: list[tuple[str, Segment | None, list[Segment]]] = [("", None, [])]
         self.used: set[str] = set()
         self.ok = True
 
-    def _take(self, attrs) -> Segment | None:
-        id_ = dict(attrs).get("id")
+    def _take(self, attrs: str) -> Segment | None:
+        id_ = _id(attrs)
         if id_ is None or id_ not in self.by_id:
             return None
         if id_ in self.used:
@@ -134,21 +195,25 @@ class _HTMLDecoder(HTMLParser):
         self.used.add(id_)
         return self.by_id[id_]
 
-    def handle_starttag(self, tag, attrs):
+    def _start(self, tag: str, attrs: str, slash: bool) -> None:
         segment = self._take(attrs)
-        if tag == "br" and segment is not None:
+        if slash or tag in VOID_ELEMENTS:
+            if segment is None:
+                # unknown void elements added by the service are dropped
+                return
+            # only opaque segments, and for <br> only newlines, may be void
+            if not isinstance(segment, Opaque) or (
+                tag == "br" and segment.kind != "newline"
+            ):
+                self.ok = False
+                return
             self.stack[-1][2].append(segment)
             return
         # unknown tags added by the service are dropped, keeping their text
         self.stack.append((tag, segment, []))
 
-    def handle_startendtag(self, tag, attrs):
-        segment = self._take(attrs)
-        if segment is not None:
-            self.stack[-1][2].append(segment)
-
-    def handle_endtag(self, tag):
-        if tag == "br" or len(self.stack) == 1:
+    def _end(self, tag: str) -> None:
+        if tag in VOID_ELEMENTS or len(self.stack) == 1:
             return
         _tag, segment, children = self.stack.pop()
         if isinstance(segment, Opaque):
@@ -161,12 +226,24 @@ class _HTMLDecoder(HTMLParser):
         else:
             self.stack[-1][2].extend(children)
 
-    def handle_data(self, data):
-        if not (self.stack[-1][1] and isinstance(self.stack[-1][1], Opaque)):
-            self.stack[-1][2].append(Text(data))
+    def _text(self, data: str) -> None:
+        if data and not any(isinstance(entry[1], Opaque) for entry in self.stack):
+            self.stack[-1][2].append(Text(html_lib.unescape(data)))
 
-    def result(self) -> list[Segment] | None:
-        self.close()
+    def feed(self, translation: str) -> list[Segment] | None:
+        end = 0
+        for match in _MARKUP.finditer(translation):
+            self._text(translation[end : match.start()])
+            end = match.end()
+            if match.group("start_name"):
+                self._start(
+                    match.group("start_name").lower(),
+                    match.group("attrs"),
+                    bool(match.group("slash")),
+                )
+            elif match.group("end_name"):
+                self._end(match.group("end_name").lower())
+        self._text(translation[end:])
         if not self.ok or len(self.stack) != 1:
             return None
         return merge_text(self.stack[0][2])
@@ -209,9 +286,7 @@ class HTMLGuard(Guard):
     def decode(self, translation: str, segments: list[Segment]) -> list[Segment] | None:
         by_id: dict[str, Segment] = {}
         self._encode(segments, by_id)
-        decoder = _HTMLDecoder(by_id)
-        decoder.feed(translation)
-        decoded = decoder.result()
+        decoded = _HTMLDecoder(by_id).feed(translation)
         if decoded is None or not same_opaques(segments, decoded):
             return None
         return decoded

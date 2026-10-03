@@ -3,6 +3,8 @@ The translations in these tests are real outputs from Google Cloud Translation f
 the encoded messages.
 """
 
+import re
+
 import pytest
 
 from autotranslate.protect.guards import HTMLGuard, TokenGuard
@@ -143,3 +145,122 @@ def test_html_guard(source, flags, translation, expected):
 )
 def test_token_guard(source, flags, translation, expected):
     assert restore(protect(source, TOKEN, flags), translation) == expected
+
+
+@pytest.mark.parametrize(
+    "source, flags, translation, expected",
+    [
+        # raw angle brackets and ampersands in service text are text
+        (
+            "Is %s ok",
+            ["python-format"],
+            f"{span(0, '%s')} ok 1<2 and a<b & c",
+            "%s ok 1<2 and a<b & c",
+        ),
+        ("Saved %s", ["python-format"], f"fim <a {span(0, '%s')}", "fim <a %s"),
+        ("Saved %s", ["python-format"], f"&lt;b&gt; {span(0, '%s')}", "<b> %s"),
+        # single quoted, unquoted and upper case markup
+        ("Saved %s", ["python-format"], "Salvo <SPAN ID='0'>x</SPAN>", "Salvo %s"),
+        ("Saved %s", ["python-format"], "Salvo <span id=0>x</span>", "Salvo %s"),
+        # comments and declarations are dropped
+        ("Saved %s", ["python-format"], f"<!-- c -->Salvo {span(0, '%s')}", "Salvo %s"),
+        # unknown tags are dropped, their text kept
+        (
+            "Saved %s",
+            ["python-format"],
+            f"Salvo<br> <b>muito</b><img src='a'><hr/> {span(0, '%s')}",
+            "Salvo muito %s",
+        ),
+        # lost, duplicated and unclosed spans are rejected
+        ("Saved %s", ["python-format"], "Salvo", None),
+        ("Saved %s", ["python-format"], f"{span(0, '%s')}{span(0, '%s')}", None),
+        ("Saved %s", ["python-format"], '<span id="0">%s', None),
+        # paired ids on void elements must not inject the source's children
+        ('Read <a href="x">docs</a>', [], 'Lê <span id="0"/> agora', None),
+        ('Read <a href="x">docs</a>', [], 'Lê <br id="0"> agora', None),
+        ("Saved %s", ["python-format"], 'Lê <br id="0"> agora', None),
+        ("Saved %s", ["python-format"], 'Lê <span id="0"/> agora', "Lê %s agora"),
+        ("a\nb", [], 'a<br translate="no" id="0">b', "a\nb"),
+    ],
+)
+def test_html_decode_hardening(source, flags, translation, expected):
+    assert restore(protect(source, HTML, flags), translation) == expected
+
+
+@pytest.mark.parametrize(
+    "source, flags, translation, expected",
+    [
+        # a duplicated token is rejected
+        ("a %(n)d", ["python-format"], "a __n__ __n__", None),
+        # unknown literal tokens are kept
+        ("a %(n)d", ["python-format"], "a __word__ __n__", "a __word__ %(n)d"),
+        # literal tokens in the source do not collide with real ones
+        ("__item__ %s", ["python-format"], "__item__ __x0__", "__item__ %s"),
+        ("__item__ %s", ["python-format"], "__item__ __item__", None),
+    ],
+)
+def test_token_guard_hardening(source, flags, translation, expected):
+    assert restore(protect(source, TOKEN, flags), translation) == expected
+
+
+def test_token_markup_does_not_collide_with_placeholder():
+    protected = protect("%(x0)s <b>bold</b>", TOKEN, ["python-format"])
+    encoded = protected.encoded
+    names = re.findall(r"__(\w+?)__", encoded)
+    assert len(names) == 3 and len(set(names)) == 3
+    first, start, end = names
+    translated = f"__{start}__negrito__{end}__ __{first}__"
+    assert restore(protected, translated) == "<b>negrito</b> %(x0)s"
+
+
+NBSP = "\u00a0"
+
+
+@pytest.mark.parametrize(
+    "source, flags, translation, expected",
+    [
+        ("%s%s", ["python-format"], f"{span(0, '%s')} {span(1, '%s')}", "%s%s"),
+        ("%s %s", ["python-format"], f"{span(0, '%s')} {span(1, '%s')}", "%s %s"),
+        # French typography is kept, ordinary spaces are removed
+        (
+            "{file}: x",
+            ["python-brace-format"],
+            f"{span(0, '{file}')}{NBSP}: x",
+            f"{{file}}{NBSP}: x",
+        ),
+        ("{file}: x", ["python-brace-format"], f"{span(0, '{file}')} : x", "{file}: x"),
+        (
+            "\u00ab %s \u00bb",
+            ["python-format"],
+            f"\u00ab{NBSP}{span(0, '%s')}{NBSP}\u00bb",
+            f"\u00ab{NBSP}%s{NBSP}\u00bb",
+        ),
+        (
+            "`%s` x",
+            ["python-format"],
+            f"`{NBSP}{span(0, '%s')}{NBSP}` x",
+            f"`{NBSP}%s{NBSP}` x",
+        ),
+    ],
+)
+def test_repair_whitespace(source, flags, translation, expected):
+    assert restore(protect(source, HTML, flags), translation) == expected
+
+
+@pytest.mark.parametrize(
+    "source, flags, translation",
+    [
+        ("{file}: x", ["python-brace-format"], f"{span(0, '{file}')} : x"),
+        ("Saved %s", ["python-format"], f"Salvo{span(0, '%s')}"),
+        ("%s%s", ["python-format"], f"{span(0, '%s')} {span(1, '%s')}"),
+        ("`%s` x", ["python-format"], f"` {span(0, '%s')} ` x"),
+    ],
+)
+def test_repair_idempotent(source, flags, translation):
+    from autotranslate.protect.parse import parse
+    from autotranslate.protect.repair import repair
+
+    segments = parse(source, flags)
+    decoded = HTML.decode(translation, segments)
+    once = repair(segments, decoded)
+    assert repair(segments, once) == once
