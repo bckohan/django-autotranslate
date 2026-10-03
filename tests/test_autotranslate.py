@@ -4,7 +4,7 @@ from unittest import mock
 from pathlib import Path
 
 import polib
-from django.core.management import call_command
+from django.core.management import CommandError, call_command
 from django.test import TestCase
 
 from autotranslate.management.commands.autotranslate import Command
@@ -242,6 +242,64 @@ class LocaleHandlingTestCase(TestCase):
             '[de] READ <a href="%(url)s">THE DOCS</a>, %(name)s',
             self.read_po("de")[0].msgstr,
         )
+
+    def test_translation_count_mismatch(self):
+        for delta, counts in [
+            (-1, "2 translations for 3"),
+            (1, "4 translations for 3"),
+        ]:
+            with self.subTest(delta=delta):
+                shutil.rmtree(self.locale_dir, ignore_errors=True)
+                self.make_po("de", ["One", "Two", "Three"])
+
+                def translate_strings(
+                    service, strings, target_language, source_language="en", delta=delta
+                ):
+                    strings = list(strings)
+                    yield from strings[:delta] if delta < 0 else strings + ["extra"]
+
+                with mock.patch.object(
+                    FakeTranslatorService, "translate_strings", translate_strings
+                ):
+                    with self.assertRaisesMessage(CommandError, counts):
+                        self.translate()
+                self.assertEqual("", self.read_po("de")[0].msgstr)
+
+    def make_plural_po(self):
+        messages = self.locale_dir / "de" / "LC_MESSAGES"
+        messages.mkdir(parents=True)
+        po = polib.POFile()
+        po.append(
+            polib.POEntry(
+                msgid="One file",
+                msgid_plural="%(count)d files",
+                msgstr_plural={0: "", 1: ""},
+                flags=["python-format"],
+            )
+        )
+        po.save(str(messages / "django.po"))
+
+    def test_plural_with_placeholders(self):
+        self.make_plural_po()
+        self.translate()
+        entry = self.read_po("de")[0]
+        self.assertEqual("[de] ONE FILE", entry.msgstr_plural[0])
+        self.assertEqual("[de] %(count)d FILES", entry.msgstr_plural[1])
+
+    def test_plural_discarded_if_one_form_lost(self):
+        self.make_plural_po()
+        original = FakeTranslatorService.restore
+
+        def restore(service, message, translation):
+            if message.source.startswith("%(count)d"):
+                return None
+            return original(service, message, translation)
+
+        with mock.patch.object(FakeTranslatorService, "restore", restore):
+            self.translate()
+        entry = self.read_po("de")[0]
+        self.assertEqual("", entry.msgstr_plural[0])
+        self.assertEqual("", entry.msgstr_plural[1])
 
 
 class FuzzyHandlingTestCase(TestCase):

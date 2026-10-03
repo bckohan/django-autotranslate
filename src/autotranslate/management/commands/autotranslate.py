@@ -477,13 +477,38 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
         """
         prepared = iter(messages)
         translations = iter(translated_strings)
+        sent = received = 0
+
+        def mismatch(received: int, sent: int) -> CommandError:
+            return CommandError(
+                _(
+                    "{service} returned {received} translations for {sent} messages."
+                ).format(
+                    service=self.service.__class__.__name__,
+                    received=received,
+                    sent=sent,
+                )
+            )
+
+        def next_pair() -> tuple[Protected, str]:
+            nonlocal sent, received
+            message = next(prepared)
+            sent += 1
+            try:
+                translation = next(translations)
+            except StopIteration:
+                sent += sum(1 for _message in prepared)
+                raise mismatch(received, sent) from None
+            received += 1
+            return message, translation
+
         for entry in entries:
             if not self.need_translate(entry):
                 continue
 
             if entry.msgid_plural:
-                singular = self.restore(next(prepared), next(translations))
-                plural = self.restore(next(prepared), next(translations))
+                singular = self.restore(*next_pair())
+                plural = self.restore(*next_pair())
                 if singular is None or plural is None:
                     continue
 
@@ -495,7 +520,7 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
                     if k != 0:
                         entry.msgstr_plural[k] = plural
             else:
-                translation = self.restore(next(prepared), next(translations))
+                translation = self.restore(*next_pair())
                 if translation is None:
                     continue
                 entry.msgstr = translation
@@ -512,6 +537,10 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
                     entry.flags.append("fuzzy")
             elif "fuzzy" in entry.flags:
                 entry.flags.remove("fuzzy")
+
+        extra = sum(1 for _translation in translations)
+        if extra:
+            raise mismatch(received + extra, sent)
 
     def restore(self, message: Protected, translation: str) -> str | None:
         """
