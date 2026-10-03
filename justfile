@@ -19,10 +19,11 @@ manage *COMMAND:
     management.execute_from_command_line(["just manage", *shlex.split("{{ COMMAND }}")])
 
 # machine translate this app's messages into all languages Django supports (paid google, set GOOGLE_TRANSLATE_API_KEY)
+[positional-arguments]
 [script]
 translate *OPTS:
     import os
-    import shlex
+    import sys
     from pathlib import Path
     import django
     from django.conf import global_settings
@@ -36,7 +37,7 @@ translate *OPTS:
     Path("locale").mkdir(exist_ok=True)
     call_command("makemessages", locale=locales, no_obsolete=True, verbosity=0)
     # uses the service configured in tests/translate.py
-    call_command("autotranslate", "--path", "locale", *shlex.split("{{ OPTS }}"))
+    call_command("autotranslate", "--path", "locale", *sys.argv[1:])
     call_command("compilemessages", verbosity=0)
 
 # install the uv package manager
@@ -237,6 +238,10 @@ check-all *ENV:
 # run all tests (pass --group flags for db client and django version, e.g. --group psycopg3 --group dj52)
 test-all *ENV:
     @just run {{ ENV }} --no-default-groups --exact --all-extras --group test --isolated pytest --cov-append
+
+# run the live tests of a paid translation service (google or amazon) - these make billed requests
+test-service SERVICE *ENV:
+    @just run {{ ENV }} --no-default-groups --all-extras --group test pytest -m service tests/services/test_{{ SERVICE }}.py --no-cov
 
 # run specific tests (project venv)
 test *TESTS:

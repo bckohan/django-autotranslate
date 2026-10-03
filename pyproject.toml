@@ -150,9 +150,15 @@ norecursedirs = "*.egg .eggs dist build docs .tox .git __pycache__"
 
 addopts = [
     "--strict-markers",
+    # live tests of the paid services, run them with just test-service <service>
+    "-m", "not service",
     "--cov=autotranslate",
     "--cov-branch",
     "--cov-report=term-missing:skip-covered",
+]
+
+markers = [
+    "service: live (billed) tests of a paid translation service",
 ]
 
 filterwarnings = [

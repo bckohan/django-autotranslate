@@ -19,6 +19,8 @@ v2.0.0 (unreleased)
 * Django language codes are matched to each service's language codes, and
   languages a service does not support are skipped. Use the ``language_map``
   option to add or override mappings.
+* Fixed ``GoogleAPITranslatorService`` HTML escaping translations (e.g. ``'`` became
+  ``&#39;``).
 * **Breaking:** ``GOOGLE_TRANSLATE_KEY`` has been removed, set the ``api_key`` option
   of ``GoogleAPITranslatorService`` instead.
 * **Breaking:** the ``AUTOTRANSLATE_TRANSLATOR_SERVICE`` setting has been removed, use

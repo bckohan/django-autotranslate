@@ -24,7 +24,10 @@ just test                              # run tests against project venv (fast it
 just test tests/test_foo.py            # run a specific file
 just test-all --group dj52             # run full isolated suite against Django 5.2
 just coverage                          # combine and report coverage
+just test-service google               # live (billed) paid service tests, keys from the environment
 ```
+
+Tests marked `service` (in `tests/services/`) call the paid translation APIs and are deselected by default. Only run them when asked to.
 
 `just test` uses the project venv with `--no-sync` for speed. `just test-all` runs in a fully isolated environment and accepts any `uv run` flags (e.g. `-p 3.12 --group dj52`).
 

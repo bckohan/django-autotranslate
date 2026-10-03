@@ -78,6 +78,17 @@ To run a single test, or group of tests in a class:
 just test <path_to_tests_file>::ClassName::FunctionName
 ```
 
+### Paid translation service tests
+
+The paid translation services have live tests that make real (billed, but tiny) API requests, so they are not part of the normal test run. They translate a small test app (`tests/service_app`) end to end and read their credentials from the environment:
+
+```shell
+GOOGLE_TRANSLATE_API_KEY=... just test-service google
+just test-service amazon  # AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION or ~/.aws config
+```
+
+In CI these run manually from the "Test Google Cloud Translation" and "Test Amazon Translate" workflows, which read their credentials from the `google-translate` and `amazon-translate` environments. The "Translate" workflow runs `just translate` with the `google-translate` environment and opens a pull request with any changes.
+
 ### Debugging tests
 
 To debug a test use the ``debug-test`` recipe:
@@ -150,6 +161,7 @@ setup python="python"        # setup the venv and pre-commit hooks
 sort-imports *ENV            # sort the python imports
 test *TESTS                  # run specific tests (project venv)
 test-all *ENV                # run all tests (pass django version, e.g. --group dj52)
+test-service SERVICE *ENV    # run the live tests of a paid translation service (google or amazon) - these make billed requests
 translate *OPTS              # machine translate this app's messages into all languages Django supports (paid google, set GOOGLE_TRANSLATE_API_KEY)
 validate_version VERSION     # validate the given version string against the lib version
 zizmor                       # run zizmor security analysis of CI

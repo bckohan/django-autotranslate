@@ -390,6 +390,11 @@ class GoogleTranslatorService(TranslatorService):
         return (item.text for item in translations)
 
 
+# the Google API translates HTML by default, which would escape quotes, ampersands,
+# etc. in the translations (e.g. ' -> &#39;)
+TEXT = {"format": "text"}
+
+
 class GoogleAPITranslatorService(TranslatorService):
     """
     Uses the paid Google API for translating.
@@ -449,7 +454,7 @@ class GoogleAPITranslatorService(TranslatorService):
     ) -> str:
         response = (
             self.service.translations()
-            .list(source=source_language, target=target_language, q=[text])
+            .list(source=source_language, target=target_language, q=[text], **TEXT)
             .execute()
         )
         return response.get("translations").pop(0).get("translatedText")
@@ -467,6 +472,7 @@ class GoogleAPITranslatorService(TranslatorService):
                     source=source_language,
                     target=target_language,
                     q=strings[: self.max_segments],
+                    **TEXT,
                 )
                 .execute()
             )
