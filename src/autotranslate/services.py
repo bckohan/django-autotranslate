@@ -1,6 +1,5 @@
 import asyncio
 import contextlib
-import re
 import time
 import typing as t
 from functools import cached_property
@@ -8,18 +7,8 @@ from functools import cached_property
 from django.core.exceptions import ImproperlyConfigured
 from django.utils.translation import gettext as _
 
-# matches printf style (%s, %d, %(name)s) and brace style ({}, {name}) placeholders
-PLACEHOLDER = r"%(?:\((\w+)\))?([sd])|(?<!\{)\{(\w*)\}(?!\})"
-
-
-def placeholders(text: str) -> list[str]:
-    """
-    Return the placeholders found in the given message, in order.
-
-    :param text: The message to search for placeholders
-    :return: The placeholders (e.g. ``%(name)s`` or ``{name}``) in the message
-    """
-    return [match.group(0) for match in re.finditer(PLACEHOLDER, text)]
+from .protect.guards import Guard, HTMLGuard, TokenGuard
+from .protect.pipeline import Protected, protect, restore
 
 
 class ServiceUnavailable(Exception):
@@ -49,6 +38,14 @@ class TranslatorService:
     Django language codes that do not map onto the service's language codes by the
     rules in :meth:`service_language`. None marks languages the service does not
     support.
+    """
+
+    guard: t.ClassVar[Guard] = TokenGuard()
+    """
+    How placeholders and markup are protected while messages are translated. The
+    default replaces them with word-like tokens. Services that translate HTML and
+    honour ``translate="no"`` should use
+    :class:`~autotranslate.protect.guards.HTMLGuard`.
     """
 
     def __init__(self, *, language_map: dict[str, str | None] | None = None):
@@ -159,71 +156,27 @@ class TranslatorService:
             _("{function}() must be overridden.").format(function="translate_strings")
         )
 
-    def humanize_placeholders(self, msgid):
-        """Convert placeholders to the (google translate) service friendly form.
-
-        %(name)s -> __name__
-        {name}   -> __name__
-        %s, {}   -> __item__
-        %d       -> __number__
+    def protect(self, text: str, flags: t.Collection[str] = ()) -> Protected:
         """
+        Prepare a message for translation by this service. Send
+        :attr:`~autotranslate.protect.pipeline.Protected.encoded` to the service.
 
-        def humanize(match):
-            name = match.group(1) or match.group(3)
-            if name:
-                return f"__{name.lower()}__"
-            return "__number__" if match.group(2) == "d" else "__item__"
-
-        return re.sub(PLACEHOLDER, humanize, msgid)
-
-    def restore_placeholders(self, msgid, translation):
+        :param text: The message
+        :param flags: The message's gettext flags (e.g. ``python-format``)
         """
-        Restore placeholders in the translated message. Named placeholders are
-        restored by name because translations may reorder them, any others are
-        restored in the order they appear in the msgid.
+        return protect(text, self.guard, flags)
+
+    def restore(self, protected: Protected, translation: str) -> str | None:
         """
-        # (placeholder, lower case name) - groups: 1 printf name, 3 brace name
-        remaining = [
-            (match.group(0), (match.group(1) or match.group(3) or "").lower())
-            for match in re.finditer(PLACEHOLDER, msgid)
-        ]
+        Restore the placeholders and markup in this service's translation of a
+        protected message.
 
-        def restore(match):
-            if not remaining:
-                return match.group(0)
-            token = match.group(0)[2:-2].lower()
-            index = next(
-                (idx for idx, ph in enumerate(remaining) if ph[1] and ph[1] == token),
-                0,
-            )
-            return remaining.pop(index)[0]
-
-        return re.sub(r"__\w+?__", restore, translation)
-
-    def validate_translation(self, msgid: str, translation: str) -> bool:
+        :param protected: The message returned by :meth:`protect`
+        :param translation: The service's translation of the encoded message
+        :return: The translated message, or None if placeholders or markup were
+            lost or changed in translation
         """
-        Check that the translation contains exactly the same placeholders as the
-        msgid. Translations that fail this check would break string formatting.
-
-        :param msgid: The source message
-        :param translation: The translated message
-        :return: True if the translation's placeholders match the msgid's
-        """
-        return sorted(placeholders(msgid)) == sorted(placeholders(translation))
-
-    def fix_translation(self, msgid, translation):
-        # Google Translate removes a lot of formatting, these are the fixes:
-        # - Add newline in the beginning if msgid also has that
-        if msgid.startswith("\n") and not translation.startswith("\n"):
-            translation = "\n" + translation
-
-        # - Add newline at the end if msgid also has that
-        if msgid.endswith("\n") and not translation.endswith("\n"):
-            translation += "\n"
-
-        # Restore the placeholders that were humanized for translation
-        translation = self.restore_placeholders(msgid, translation)
-        return translation
+        return restore(protected, translation)
 
 
 class GoogleTranslatorService(TranslatorService):
@@ -390,16 +343,15 @@ class GoogleTranslatorService(TranslatorService):
         return (item.text for item in translations)
 
 
-# the Google API translates HTML by default, which would escape quotes, ampersands,
-# etc. in the translations (e.g. ' -> &#39;)
-TEXT = {"format": "text"}
-
-
 class GoogleAPITranslatorService(TranslatorService):
     """
     Uses the paid Google API for translating.
     https://github.com/google/google-api-python-client
     """
+
+    # Google translates HTML and leaves translate="no" elements alone. The guard
+    # also decides the request's format, in text format the API escapes nothing
+    guard = HTMLGuard()
 
     # Google's Serbian is Cyrillic only, so it cannot be used for sr-latn. Django's
     # pt is European Portuguese, Google's is Brazilian.
@@ -454,7 +406,12 @@ class GoogleAPITranslatorService(TranslatorService):
     ) -> str:
         response = (
             self.service.translations()
-            .list(source=source_language, target=target_language, q=[text], **TEXT)
+            .list(
+                source=source_language,
+                target=target_language,
+                q=[text],
+                format=self.guard.content_type,
+            )
             .execute()
         )
         return response.get("translations").pop(0).get("translatedText")
@@ -472,7 +429,7 @@ class GoogleAPITranslatorService(TranslatorService):
                     source=source_language,
                     target=target_language,
                     q=strings[: self.max_segments],
-                    **TEXT,
+                    format=self.guard.content_type,
                 )
                 .execute()
             )
@@ -485,6 +442,9 @@ class AmazonTranslateTranslatorService(TranslatorService):
     Uses the paid Amazon Translate for translating.
     https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/translate.html
     """
+
+    # Amazon detects HTML in the text and leaves translate="no" elements alone
+    guard = HTMLGuard()
 
     # Amazon has no Latin script Serbian. Django's pt is European Portuguese,
     # Amazon's is Brazilian.
