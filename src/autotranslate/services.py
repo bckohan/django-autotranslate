@@ -43,7 +43,7 @@ class TranslatorService:
     guard: t.ClassVar[Guard] = TokenGuard()
     """
     How placeholders and markup are protected while messages are translated. The
-    default replaces them with word-like tokens. Services that translate HTML and
+    default replaces them with numbered tokens. Services that translate HTML and
     honour ``translate="no"`` should use
     :class:`~autotranslate.protect.guards.HTMLGuard`.
 

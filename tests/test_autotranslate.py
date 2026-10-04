@@ -79,7 +79,7 @@ class POFileTestCase(TestCase):
         po = polib.POFile()
         po.append(entry)
         self.assertEqual(
-            "100__x0__ of __n__", self.cmd.get_messages_to_translate(po)[0].encoded
+            "100__x0__ of __x1__", self.cmd.get_messages_to_translate(po)[0].encoded
         )
 
 

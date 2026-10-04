@@ -22,9 +22,9 @@ class ServiceGuardTestCase(TestCase):
     def test_protect_and_restore(self):
         service = TranslatorService()
         protected = service.protect("Saved %s", ["python-format"])
-        self.assertEqual("Saved __item__", protected.encoded)
+        self.assertEqual("Saved __x0__", protected.encoded)
         self.assertEqual(
-            "Gespeichert %s", service.restore(protected, "Gespeichert __item__")
+            "Gespeichert %s", service.restore(protected, "Gespeichert __x0__")
         )
         self.assertIsNone(service.restore(protected, "Gespeichert"))
 

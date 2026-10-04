@@ -32,11 +32,11 @@ def test_html_encode():
 def test_token_encode():
     assert (
         protect("100%% of %(n)d", TOKEN, ["python-format"]).encoded
-        == "100__x0__ of __n__"
+        == "100__x0__ of __x1__"
     )
     assert (
         protect("Saved %s %s", TOKEN, ["python-format"]).encoded
-        == "Saved __item__ __item__"
+        == "Saved __x0__ __x1__"
     )
 
 
@@ -131,12 +131,17 @@ def test_html_guard(source, flags, translation, expected):
 @pytest.mark.parametrize(
     "source, flags, translation, expected",
     [
-        ("Saved %s", ["python-format"], "Gespeichert __item__", "Gespeichert %s"),
+        ("Saved %s", ["python-format"], "Gespeichert __x0__", "Gespeichert %s"),
         # Google translated the token as a word
         ("Saved %s", ["python-format"], "Item salvo", None),
         # named tokens are restored by name
-        ("%(a)s and %(b)s", ["python-format"], "__b__ y __a__", "%(b)s y %(a)s"),
-        ("100%% of %(n)d", ["python-format"], "100__x0__ von __n__", "100%% von %(n)d"),
+        ("%(a)s and %(b)s", ["python-format"], "__x1__ y __x0__", "%(b)s y %(a)s"),
+        (
+            "100%% of %(n)d",
+            ["python-format"],
+            "100__x0__ von __x1__",
+            "100%% von %(n)d",
+        ),
         # leading and trailing whitespace comes from the source
         ("\nLeading newline", [], "Führende Zeile", "\nFührende Zeile"),
         # a mangled token is rejected
@@ -194,7 +199,7 @@ def test_html_decode_hardening(source, flags, translation, expected):
         # a duplicated token is rejected
         ("a %(n)d", ["python-format"], "a __n__ __n__", None),
         # unknown literal tokens are kept
-        ("a %(n)d", ["python-format"], "a __word__ __n__", "a __word__ %(n)d"),
+        ("a %(n)d", ["python-format"], "a __word__ __x0__", "a __word__ %(n)d"),
         # literal tokens in the source do not collide with real ones
         ("__item__ %s", ["python-format"], "__item__ __x0__", "__item__ %s"),
         ("__item__ %s", ["python-format"], "__item__ __item__", None),
@@ -283,9 +288,10 @@ def test_restore_rejects_extra_directives(guard, translation):
 
 def test_repair_respects_reordering():
     protected = protect("%(a)s%(b)s and %(c)s", TOKEN, ["python-format"])
-    out = restore(protected, "__a__ __c__ e __b__")
+    # a, b and c are __x0__, __x1__ and __x2__
+    out = restore(protected, "__x0__ __x2__ e __x1__")
     assert out == "%(a)s %(c)s e %(b)s"
-    assert restore(protected, "__a____b__ e __c__") == "%(a)s%(b)s e %(c)s"
+    assert restore(protected, "__x0____x1__ e __x2__") == "%(a)s%(b)s e %(c)s"
 
 
 @pytest.mark.parametrize(
@@ -310,8 +316,8 @@ def test_token_guard_unclosed_markup():
 
 def test_token_guard_positional_fields_keep_identity():
     protected = protect("{0} of {1}", TOKEN, ["python-brace-format"])
-    assert protected.encoded == "__item0__ of __item1__"
-    assert restore(protected, "__item1__的__item0__") == "{1}的{0}"
+    assert protected.encoded == "__x0__ of __x1__"
+    assert restore(protected, "__x1__的__x0__") == "{1}的{0}"
 
 
 def test_token_guard_attribute_fields_keep_identity():
@@ -324,11 +330,11 @@ def test_token_guard_attribute_fields_keep_identity():
     )
 
 
-def test_token_guard_identical_sources_share_a_name():
-    assert (
-        protect("{name} {name}", TOKEN, ["python-brace-format"]).encoded
-        == "__name__ __name__"
-    )
+def test_token_guard_numbers_every_placeholder():
+    # numbered tokens, not names, which services translate as words
+    protected = protect("{service}: {name} {name}", TOKEN, ["python-brace-format"])
+    assert protected.encoded == "__x0__: __x1__ __x2__"
+    assert restore(protected, "__x2__ __x1__: __x0__") == "{name} {name}: {service}"
 
 
 @pytest.mark.parametrize("source", ["%(a__b)s", "%(name_)s", "%(_x)s"])

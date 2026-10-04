@@ -9,6 +9,9 @@ v2.0.0 (unreleased)
 
 * Rewrote the documentation as a tutorial, how-to guides, reference and explanation
   (`Diátaxis <https://diataxis.fr/>`_).
+* The free Google service sends placeholders as numbered tokens (``__x0__``) instead of
+  named ones (``__name__``), which Google translated as words (Slovenian
+  ``__storitev__`` for ``__service__``), discarding the translation.
 * Plural messages are translated into every plural form a language's
   ``Plural-Forms`` header declares. :django-admin:`makemessages` can create fewer
   forms, which left some numbers untranslated (e.g. Spanish's third form).

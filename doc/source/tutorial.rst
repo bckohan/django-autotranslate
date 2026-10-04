@@ -129,40 +129,43 @@ Now run ``autotranslate``:
     $ python manage.py autotranslate
     Translating /home/you/mysite/locale/de/LC_MESSAGES/django.po into German
     Translating /home/you/mysite/locale/es/LC_MESSAGES/django.po into Spanish
-    Discarded the translation of 'Welcome back, %(name)s!' because its placeholders or
-    markup changed: '¡Bienvenido de nuevo, __nombre__!'
 
 The command found both message files in :setting:`LOCALE_PATHS`, worked out each
 file's language from its directory name, and sent the empty messages to the free
 Google Translate service.
 
-Open the German file again. The messages are translated, and the placeholder and the
+Open the Spanish file again. The messages are translated, and the placeholders and the
 link survived translation unchanged:
 
 .. code-block:: po
 
     #, python-format
     msgid "Welcome back, %(name)s!"
-    msgstr "Willkommen zurück, %(name)s!"
+    msgstr "¡Bienvenido de nuevo, %(name)s!"
 
     #, python-format
     msgid "You have %(count)d new message."
     msgid_plural "You have %(count)d new messages."
-    msgstr[0] "Sie haben %(count)d neue Nachrichten."
-    msgstr[1] "Sie haben %(count)d neue Nachrichten."
+    msgstr[0] "Tienes %(count)d mensaje nuevo."
+    msgstr[1] "Tienes %(count)d mensajes nuevos."
+    msgstr[2] "Tienes %(count)d mensajes nuevos."
 
     msgid "Read the <a href=\"/help/\">help pages</a> to get started."
-    msgstr "Lesen Sie die <a href=\"/help/\">Hilfeseiten</a>, um loszulegen."
+    msgstr "Lea las <a href=\"/help/\">páginas de ayuda</a> para comenzar."
 
 Notice two things:
 
-* **One Spanish translation was discarded.** The free service only translates plain
-  text, so placeholders are sent as word-like tokens such as ``__name__``. Here Google
-  translated the token itself into ``__nombre__``. A translation that loses a
-  placeholder would break your site, so django-autotranslate discarded it and left
-  the message untranslated. Django shows the English text until it is translated.
-* **The German singular is wrong.** "Sie haben 1 neue Nachrichten" should be "eine
-  neue Nachricht". Machine translations need reviewing, see :ref:`howto-review`.
+* **Spanish has three plural forms.** Spanish's plural rules, which Django declares in
+  the file's header, have a separate form for millions. ``autotranslate`` fills every
+  form the language declares.
+* **The tone is inconsistent.** The plural message uses the informal *tienes* (you),
+  but the link uses the formal *lea* (read), and the German file uses the formal *Sie*
+  throughout. Machine translation does not know your site's voice, so have people who
+  speak your languages review the translations, see :ref:`howto-review`.
+
+If the service changes a placeholder or tag in a translation, ``autotranslate``
+discards that translation and tells you, so a broken translation never reaches your
+site. Django shows the English text for messages that are not translated.
 
 Use the translations
 ====================
@@ -186,9 +189,7 @@ Then try them in the Django shell:
     "
     en ['Welcome back, Ada!', 'You have 3 new messages.', 'Read the <a href="/help/">help pages</a> to get started.']
     de ['Willkommen zurück, Ada!', 'Sie haben 3 neue Nachrichten.', 'Lesen Sie die <a href="/help/">Hilfeseiten</a>, um loszulegen.']
-    es ['Welcome back, Ada!', 'Tienes 3 mensajes nuevos.', 'Lea las <a href="/help/">páginas de ayuda</a> para comenzar.']
-
-The discarded Spanish message falls back to English, everything else is translated.
+    es ['¡Bienvenido de nuevo, Ada!', 'Tienes 3 mensajes nuevos.', 'Lea las <a href="/help/">páginas de ayuda</a> para comenzar.']
 
 Run it again
 ============
@@ -198,21 +199,18 @@ Run ``autotranslate`` a second time:
 .. code-block:: console
 
     $ python manage.py autotranslate
-    Translating /home/you/mysite/locale/es/LC_MESSAGES/django.po into Spanish
-    Discarded the translation of 'Welcome back, %(name)s!' because its placeholders or
-    markup changed: '¡Bienvenido de nuevo, __nombre__!'
 
-Only the Spanish file had anything left to translate. By default ``autotranslate``
-only sends messages that have no translation, or whose English text has changed, so
-running it again is cheap and never overwrites existing translations.
+It prints nothing: every message is translated, so there is nothing to send. By
+default ``autotranslate`` only translates messages that have no translation, or whose
+English text has changed, so running it again is cheap and never overwrites existing
+translations.
 
 Next steps
 ==========
 
 You have translated a Django project. From here:
 
-* Get more reliable results from a paid service: :ref:`howto-google-cloud` or
-  :ref:`howto-amazon`. Paid services are told not to translate placeholders, so they
-  rarely need discarding.
+* Use a paid service for regular use: :ref:`howto-google-cloud` or
+  :ref:`howto-amazon`.
 * Fit ``autotranslate`` into your workflow: :ref:`howto-update`.
 * Learn what happened behind the scenes: :ref:`explanation-how`.

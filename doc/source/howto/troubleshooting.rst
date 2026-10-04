@@ -29,7 +29,7 @@ Messages
 ``Discarded the translation of '...' because its placeholders or markup changed: '...'``
     The service lost, changed or added a placeholder or HTML tag, so the translation was
     not used and the message stays untranslated. A few of these are normal, especially
-    with the free service, which can only send placeholders as words. Translate those
+    with the free service, which can only send placeholders as tokens in the text. Translate those
     messages by hand, or use a paid service. See :ref:`explanation-protection`.
 
 ``... returned the wrong number of translations: expected ..., received ....``

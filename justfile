@@ -29,7 +29,8 @@ translate *OPTS:
     from django.conf import global_settings
     from django.core.management import call_command
     from django.utils.translation import to_locale
-    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "tests.translate")
+    # the justfile exports DJANGO_SETTINGS_MODULE for every recipe, so override it
+    os.environ["DJANGO_SETTINGS_MODULE"] = "tests.translate"
     django.setup()
     # English is the source language
     locales = sorted({to_locale(code) for code, _ in global_settings.LANGUAGES if not code.startswith("en")})

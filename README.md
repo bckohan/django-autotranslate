@@ -123,7 +123,7 @@ Placeholders and markup in messages are protected from translation:
 - HTML: tags, character references (ending in ``;``, so ``AT&T`` is ordinary text) and comments are kept and the text inside elements is translated, except in ``code``, ``kbd``, ``pre``, ``samp``, ``script``, ``style`` and ``var`` elements. Attribute values are not translated.
 - Newlines.
 
-The paid Google and Amazon services are told not to translate them (``translate="no"``). The free Google service only translates plain text, so they are replaced with word-like tokens (``__name__``). Translations that lose or change a placeholder or tag, or add placeholders or markup that were not in the source message, are discarded with a warning and the message is left untranslated.
+The paid Google and Amazon services are told not to translate them (``translate="no"``). The free Google service only translates plain text, so they are replaced with numbered tokens (``__x0__``). Translations that lose or change a placeholder or tag, or add placeholders or markup that were not in the source message, are discarded with a warning and the message is left untranslated.
 
 ## Compatibility Matrix
 

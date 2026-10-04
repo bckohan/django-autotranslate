@@ -28,7 +28,7 @@ is required:
 
     class ExampleTranslatorService(TranslatorService):
         # Services that translate HTML and leave translate="no" elements alone
-        # should use HTMLGuard. The default sends placeholders as word-like tokens.
+        # should use HTMLGuard. The default sends placeholders as numbered tokens.
         guard = HTMLGuard()
 
         # Django language codes the matching rules get wrong for this service

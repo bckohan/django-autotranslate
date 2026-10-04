@@ -31,7 +31,7 @@ than used, so the differences are in coverage, reliability, cost and set up.
       - Paid per character, with a monthly free allowance
       - Paid per character
     * - Placeholder protection
-      - Word-like tokens, sometimes translated
+      - Numbered tokens in the text, occasionally changed
       - Marked as not to be translated
       - Marked as not to be translated
     * - Reliability
@@ -43,8 +43,8 @@ Which to use
 ============
 
 **To try django-autotranslate, or for an occasional run**, the free service needs no
-set up. Expect some translations to be discarded because their placeholders were
-translated, and translate a few languages at a time to avoid being rate limited, see
+set up. Expect the occasional translation to be discarded because a placeholder was
+changed, and translate a few languages at a time to avoid being rate limited, see
 :ref:`howto-free-google`.
 
 **For regular use, Google Cloud Translation** is the best default. It covers the same

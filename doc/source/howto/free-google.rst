@@ -49,5 +49,5 @@ When to switch
 ==============
 
 Consider a paid service if you translate regularly, need many languages, or see many
-discarded translations: the free service can only send placeholders as word-like tokens,
-which it sometimes translates. See :ref:`explanation-services`.
+discarded translations: the free service can only send placeholders as tokens in the
+text, which it occasionally changes. See :ref:`explanation-services`.

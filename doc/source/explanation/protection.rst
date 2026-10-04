@@ -43,15 +43,18 @@ The ids let the original be put back even when the translation moves things arou
 service's copy of a protected part is ignored, so a service that alters it anyway does
 no harm.
 
-The free Google service only translates plain text, so protected parts become word-like
+The free Google service only translates plain text, so protected parts become numbered
 tokens:
 
 .. code-block:: text
 
-    Hello __name__, read the __x0__help pages__x1__.
+    Hello __x0__, read the __x1__help pages__x2__.
 
-Tokens are less reliable: the service sees them as words and occasionally translates
-them, as in the tutorial, where ``__name__`` came back as ``__nombre__``.
+The tokens are numbered rather than named after the placeholders, because the service
+treats tokens that are words as words: in testing it translated ``__service__`` into
+Slovenian as ``__storitev__``, but kept every numbered token. Tokens are still less
+reliable than the paid services' ``translate="no"``, so the occasional translation may
+be discarded.
 
 Checking the result
 ===================

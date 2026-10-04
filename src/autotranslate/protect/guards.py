@@ -57,21 +57,16 @@ def same_opaques(source: list[Segment], translation: list[Segment]) -> bool:
     return count(source) == count(translation)
 
 
-#: Placeholder names that survive a round trip through the token pattern
-_TOKEN_NAME = re.compile(r"[A-Za-z0-9]+(?:_[A-Za-z0-9]+)*")
-_FIELD_NUMBER = re.compile(r"\{(\d+)")
-
-
 class TokenGuard(Guard):
     """
-    For services that only translate plain text. Opaque segments are replaced with
-    word-like tokens: ``__name__`` for named placeholders, ``__item__`` and
-    ``__number__`` for unnamed ones and ``__x0__``, ``__x1__``, ... for markup.
-    Placeholders that share a name but not a source get a token each
-    (``{0}`` and ``{1}`` are ``__item0__`` and ``__item1__``, other clashes get
-    ``__xN__`` tokens), identical placeholders share a token. Newlines are sent as
-    is. Tokens are restored by name, or in order when names repeat, and the
-    translation is rejected if its markup is not properly nested.
+    For services that only translate plain text. Each opaque segment is replaced
+    with a numbered, word-like token (``__x0__``, ``__x1__``, ...). Newlines are sent
+    as is. Tokens are restored by number, and the translation is rejected if a token
+    is lost or duplicated or its markup is not properly nested.
+
+    Tokens are numbered rather than named after placeholders (``__name__``) because
+    services translate tokens that are words: Google translated ``__service__`` into
+    Slovenian as ``__storitev__``.
     """
 
     TOKEN = re.compile(r"__(\w+?)__")
@@ -79,61 +74,21 @@ class TokenGuard(Guard):
     def _tokens(self, segments: list[Segment]) -> list[tuple[str, Opaque]]:
         flat = flatten(segments)
         # tokens already in the source's text must not collide with ours
-        used = {
+        taken = {
             match.group(1).lower()
             for segment in flat
             if isinstance(segment, Text)
             for match in self.TOKEN.finditer(segment.text)
         }
-
-        def candidate(segment: Segment) -> str | None:
-            if (
-                isinstance(segment, Opaque)
-                and segment.kind in {"printf", "brace"}
-                and _TOKEN_NAME.fullmatch(segment.name)
-                and segment.name.lower() not in used
-            ):
-                return segment.name.lower()
-            return None
-
-        sources: dict[str, dict[str, None]] = {}
-        for segment in flat:
-            name = candidate(segment)
-            if name is not None:
-                assert isinstance(segment, Opaque)
-                sources.setdefault(name, {})[segment.source] = None
-        # a name shared by different sources is given to none of them, unless the
-        # sources are numbered fields
-        names: dict[tuple[str, str], str] = {}
-        taken = set(used)
-        for name, group in sources.items():
-            if len(group) == 1:
-                names[(name, next(iter(group)))] = name
-                taken.add(name)
-        taken.update(sources)
-        for name, group in sources.items():
-            if len(group) == 1 or name != "item":
-                continue
-            for source in group:
-                number = _FIELD_NUMBER.match(source)
-                if number and f"item{number.group(1)}" not in taken:
-                    names[(name, source)] = f"item{number.group(1)}"
-                    taken.add(f"item{number.group(1)}")
         tokens = []
-        generated = 0
+        number = 0
         for segment in flat:
             if not isinstance(segment, Opaque) or segment.kind == "newline":
                 continue
-            name = candidate(segment)
-            if name is not None and (name, segment.source) in names:
-                tokens.append((names[(name, segment.source)], segment))
-            else:
-                # markup, and placeholders that cannot be named, get a name that
-                # no placeholder or literal token in the source uses
-                while f"x{generated}" in taken:
-                    generated += 1
-                tokens.append((f"x{generated}", segment))
-                taken.add(f"x{generated}")
+            while f"x{number}" in taken:
+                number += 1
+            tokens.append((f"x{number}", segment))
+            number += 1
         return tokens
 
     def encode(self, segments: list[Segment]) -> str:
