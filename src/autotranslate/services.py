@@ -451,14 +451,20 @@ class AmazonTranslateTranslatorService(TranslatorService):
     # Amazon detects HTML in the text and leaves translate="no" elements alone
     guard = HTMLGuard()
 
-    # Amazon has no Latin script Serbian. Django's pt is European Portuguese,
-    # Amazon's is Brazilian.
+    # Amazon's Serbian is written in Latin script, it has no Cyrillic Serbian (Django's
+    # sr). Django's pt is European Portuguese, Amazon's is Brazilian. Amazon's es is
+    # European Spanish, es-MX is its Latin American Spanish.
     default_language_map: t.ClassVar[dict[str, str | None]] = {
         "pt": "pt-PT",
         "zh-hans": "zh",
         "zh-hant": "zh-TW",
         "nb": "no",
-        "sr-latn": None,
+        "sr": None,
+        "sr-latn": "sr",
+        "es-ar": "es-MX",
+        "es-co": "es-MX",
+        "es-ni": "es-MX",
+        "es-ve": "es-MX",
     }
 
     def __init__(

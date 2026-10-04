@@ -283,6 +283,28 @@ class _HTMLDecoder:
         return merge_text(self.stack[0][2])
 
 
+# a whitespace delimited word containing an ampersand followed by a name or number
+_AMPERSAND_WORD = re.compile(r"[^\s<>]*&[A-Za-z0-9#][^\s<>]*")
+
+# the kind of the opaque segments HTMLGuard wraps such words in while translating
+AMPERSAND = "ampersand"
+
+
+def _unwrap_ampersands(segments: list[Segment]) -> list[Segment]:
+    """Turn the ampersand words HTMLGuard protected back into text."""
+    unwrapped: list[Segment] = []
+    for segment in segments:
+        if isinstance(segment, Opaque) and segment.kind == AMPERSAND:
+            unwrapped.append(Text(segment.source))
+        elif isinstance(segment, Paired):
+            unwrapped.append(
+                Paired(segment.start, segment.end, _unwrap_ampersands(segment.children))
+            )
+        else:
+            unwrapped.append(segment)
+    return merge_text(unwrapped)
+
+
 class HTMLGuard(Guard):
     """
     For services that translate HTML and leave elements with ``translate="no"``
@@ -291,15 +313,36 @@ class HTMLGuard(Guard):
     ``<br translate="no" id="N">`` and paired markup as ``<span id="N">...</span>``
     so the service can move it with the words it wraps. The service's copies of
     opaque text are ignored when decoding, the source is restored by id.
+
+    Words in the text that contain ampersand sequences an HTML parser would decode
+    (e.g. ``&copy`` or ``id=1&timestamp=2``, but not ``AT&T``) are also sent as
+    ``translate="no"`` spans: Amazon Translate decodes entities in its input twice,
+    so ``&amp;copy`` would come back as ``©``.
     """
 
     content_type = "html"
+
+    def _encode_text(self, text: str, by_id: dict[str, Segment]) -> str:
+        parts = []
+        end = 0
+        for match in _AMPERSAND_WORD.finditer(text):
+            word = match.group(0)
+            if html_lib.unescape(word) == word:
+                continue
+            parts.append(html_lib.escape(text[end : match.start()], quote=False))
+            id_ = str(len(by_id))
+            by_id[id_] = Opaque(word, AMPERSAND)
+            source = html_lib.escape(word, quote=False)
+            parts.append(f'<span translate="no" id="{id_}">{source}</span>')
+            end = match.end()
+        parts.append(html_lib.escape(text[end:], quote=False))
+        return "".join(parts)
 
     def _encode(self, segments: list[Segment], by_id: dict[str, Segment]) -> str:
         parts = []
         for segment in segments:
             if isinstance(segment, Text):
-                parts.append(html_lib.escape(segment.text, quote=False))
+                parts.append(self._encode_text(segment.text, by_id))
                 continue
             id_ = str(len(by_id))
             by_id[id_] = segment
@@ -320,7 +363,18 @@ class HTMLGuard(Guard):
     def decode(self, translation: str, segments: list[Segment]) -> list[Segment] | None:
         by_id: dict[str, Segment] = {}
         self._encode(segments, by_id)
-        decoded = _HTMLDecoder(by_id).feed(translation)
-        if decoded is None or not same_opaques(segments, decoded):
+        decoder = _HTMLDecoder(by_id)
+        decoded = decoder.feed(translation)
+        if decoded is None:
+            return None
+        # protected ampersand words are text, but must not be lost in translation
+        if any(
+            id_ not in decoder.used
+            for id_, segment in by_id.items()
+            if isinstance(segment, Opaque) and segment.kind == AMPERSAND
+        ):
+            return None
+        decoded = _unwrap_ampersands(decoded)
+        if not same_opaques(segments, decoded):
             return None
         return decoded

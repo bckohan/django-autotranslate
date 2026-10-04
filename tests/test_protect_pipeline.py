@@ -404,3 +404,75 @@ def test_paragraph_break_from_html_service():
 def test_paragraph_break_round_trips(guard):
     protected = protect("Para one.\n\nPara two.", guard)
     assert restore(protected, protected.encoded) == "Para one.\n\nPara two."
+
+
+# Amazon decodes entities in its input twice, so "&amp;copy" comes back as "©".
+# Words containing ampersand sequences that would decode as an entity are sent as
+# do-not-translate spans.
+
+
+@pytest.mark.parametrize(
+    "source, translation, expected",
+    [
+        (
+            "See &copy and id=1&timestamp=2 now",
+            'Siehe jetzt <span translate="no" id="0">&amp;copy</span> und '
+            '<span translate="no" id="1">id=1&amp;timestamp=2</span>',
+            "Siehe jetzt &copy und id=1&timestamp=2",
+        ),
+        # the service's copy of a protected word is ignored
+        (
+            "See &copy now",
+            'Siehe jetzt <span translate="no" id="0">©</span>',
+            "Siehe jetzt &copy",
+        ),
+        # a lost protected word is rejected
+        ("See &copy now", "Siehe jetzt ©", None),
+        # ampersands that don't decode are translated as text
+        ("AT&T and R&D", "AT&T und R&D", "AT&T und R&D"),
+    ],
+)
+def test_html_guard_ampersands(source, translation, expected):
+    assert restore(protect(source, HTML, []), translation) == expected
+
+
+def test_html_guard_ampersand_encoding():
+    assert protect("AT&T and &copy", HTML, []).encoded == (
+        'AT&amp;T and <span translate="no" id="0">&amp;copy</span>'
+    )
+
+
+@pytest.mark.parametrize(
+    "source, flags, translation, expected",
+    [
+        # Amazon: the space before an opening quote is kept
+        (
+            "Fish & chips are 'ready' at 100%%.",
+            ["python-format"],
+            'Fish & Chips sind bei 100 <span translate="no" id="0">%%</span> „fertig“.',
+            "Fish & Chips sind bei 100 %% „fertig“.",
+        ),
+        (
+            "Fish & chips are 'ready' at 100%%.",
+            ["python-format"],
+            '炸鱼薯条在 100 <span translate="no" id="0">%%</span> “准备就绪” 了。',
+            "炸鱼薯条在 100 %% “准备就绪” 了。",
+        ),
+        # brackets attach to placeholders
+        (
+            "(%s)",
+            ["python-format"],
+            '( <span translate="no" id="0">%s</span> )',
+            "(%s)",
+        ),
+        # the same quote character the source had attaches
+        (
+            "'%s'",
+            ["python-format"],
+            '\' <span translate="no" id="0">%s</span> \'',
+            "'%s'",
+        ),
+    ],
+)
+def test_repair_quotes(source, flags, translation, expected):
+    assert restore(protect(source, HTML, flags), translation) == expected

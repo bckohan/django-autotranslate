@@ -34,6 +34,24 @@ def _is_punctuation(char: str) -> bool:
     return unicodedata.category(char)[0] in "PS"
 
 
+def _attaches(char: str, source: str, opening: bool) -> bool:
+    """
+    May whitespace between an opaque segment and this punctuation be removed?
+
+    :param char: The punctuation next to the opaque segment in the translation
+    :param source: The character next to the opaque segment in the source
+    :param opening: True if the punctuation is before the opaque segment
+    """
+    if not _is_punctuation(char):
+        return False
+    if char == source:
+        return True
+    # quotation marks open or close depending on the language (German closes with
+    # “), and brackets only attach on their inner side
+    category = unicodedata.category(char)
+    return category not in ("Pi", "Pf", "Pe" if opening else "Ps")
+
+
 def _is_spaced_letter(char: str) -> bool:
     if not unicodedata.category(char).startswith("L"):
         return False
@@ -134,7 +152,7 @@ def repair(source: list[Segment], translation: list[Segment]) -> list[Segment]:
                     left not in ("", " ")
                     and stripped
                     and stripped != text
-                    and _is_punctuation(stripped[-1])
+                    and _attaches(stripped[-1], left, opening=True)
                 ):
                     # "` {name}" -> "`{name}"
                     text = stripped
@@ -149,7 +167,7 @@ def repair(source: list[Segment], translation: list[Segment]) -> list[Segment]:
                     right not in ("", " ")
                     and stripped
                     and stripped != text
-                    and _is_punctuation(stripped[0])
+                    and _attaches(stripped[0], right, opening=False)
                 ):
                     # "{file} :" -> "{file}:"
                     text = stripped

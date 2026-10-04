@@ -138,17 +138,26 @@ class ServiceLanguageListTestCase(TestCase):
                 "Languages": [{"LanguageCode": c} for c in ["de", "es", "es-MX"]],
                 "NextToken": "page2",
             },
-            {"Languages": [{"LanguageCode": c} for c in ["no", "pt", "zh", "zh-TW"]]},
+            {
+                "Languages": [
+                    {"LanguageCode": c} for c in ["no", "pt", "sr", "zh", "zh-TW"]
+                ]
+            },
         ]
         self.assertEqual("es-MX", service.service_language("es-mx"))
-        self.assertEqual("es", service.service_language("es-ar"))
+        # Amazon's es is European Spanish, Latin American variants use es-MX
+        for language in ["es-ar", "es-co", "es-ni", "es-ve"]:
+            self.assertEqual("es-MX", service.service_language(language))
+        self.assertEqual("es", service.service_language("es"))
         self.assertEqual("pt", service.service_language("pt-br"))
         self.assertEqual("pt-PT", service.service_language("pt"))
         self.assertEqual("zh", service.service_language("zh-hans"))
         self.assertEqual("zh-TW", service.service_language("zh-hant"))
         self.assertEqual("no", service.service_language("nb"))
         self.assertEqual("iw", service.service_language("he"))
-        self.assertIsNone(service.service_language("sr-latn"))
+        # Amazon's Serbian is Latin script
+        self.assertEqual("sr", service.service_language("sr-latn"))
+        self.assertIsNone(service.service_language("sr"))
         self.assertIsNone(service.service_language("ia"))
         # both pages were requested, once
         self.assertEqual(

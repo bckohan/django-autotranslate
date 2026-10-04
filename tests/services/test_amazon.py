@@ -15,6 +15,10 @@ class AmazonTranslateTranslatorServiceTests(ServiceTestMixin, TestCase):
         "zh-hans": "zh",
         "zh-hant": "zh-TW",
         "nb": "no",
+        # Amazon's Serbian is Latin script and its es is European Spanish
+        "sr": None,
+        "sr-latn": "sr",
+        "es-ar": "es-MX",
     }
 
     def options(self):
