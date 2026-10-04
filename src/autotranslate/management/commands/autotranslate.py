@@ -272,7 +272,7 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
                             self.translate_file(message_file)
 
     @contextmanager
-    def progress_bar(self, total: int) -> t.Iterator[None]:
+    def progress_bar(self, total: int) -> t.Generator[None]:
         """
         Show a progress bar of all the strings translated while in this context, if
         progress bars are enabled.
@@ -297,7 +297,7 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
                 self.progress = None
 
     @contextmanager
-    def language_progress_bar(self, language: str, total: int) -> t.Iterator[None]:
+    def language_progress_bar(self, language: str, total: int) -> t.Generator[None]:
         """
         Show a progress bar of the strings translated for a language beneath the
         total progress bar, while in this context. The bar is removed when the
