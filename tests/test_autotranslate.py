@@ -245,8 +245,8 @@ class LocaleHandlingTestCase(TestCase):
 
     def test_translation_count_mismatch(self):
         for delta, counts in [
-            (-1, "2 translations for 3"),
-            (1, "4 translations for 3"),
+            (-1, "expected 3, received 2"),
+            (1, "expected 3, received 4"),
         ]:
             with self.subTest(delta=delta):
                 shutil.rmtree(self.locale_dir, ignore_errors=True)
@@ -493,7 +493,7 @@ class ProgressBarTestCase(TestCase):
             FakeTranslatorService, "restore", lambda self, message, translation: None
         ):
             stdout, stderr = self.translate("--progress")
-        self.assertIn("Discarding translation with mismatched placeholders", stdout)
+        self.assertIn("because its placeholders or markup changed", stdout)
         self.assertIn("100%", stderr)
 
     def test_language_bar_covers_all_language_files(self):

@@ -95,10 +95,10 @@ class ServiceSettingTestCase(TestCase):
     def test_error_names_source(self):
         with override_settings(AUTOTRANSLATE_SERVICE="no.such.Service"):
             with self.assertRaisesMessage(
-                ImproperlyConfigured, "specified in settings.AUTOTRANSLATE_SERVICE"
+                ImproperlyConfigured, "(settings.AUTOTRANSLATE_SERVICE)"
             ):
                 get_translator()
-        with self.assertRaisesMessage(ImproperlyConfigured, "specified in --service"):
+        with self.assertRaisesMessage(ImproperlyConfigured, "(--service)"):
             get_translator("no.such.Service", source="--service")
         with self.assertRaisesMessage(
             ImproperlyConfigured, "autotranslate.config.language_codes"
@@ -136,7 +136,7 @@ class CommandOptionsTestCase(TestCase):
         self.assertEqual("[default] Location", self.translate()[0].msgstr)
 
     def test_bad_service_error_names_option(self):
-        with self.assertRaisesMessage(ImproperlyConfigured, "specified in --service"):
+        with self.assertRaisesMessage(ImproperlyConfigured, "(--service)"):
             call_command(
                 "autotranslate",
                 "--path",

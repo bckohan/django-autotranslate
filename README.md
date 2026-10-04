@@ -43,11 +43,14 @@ The command finds all the generated pot (``.po``) files under the locale paths (
 
 ### Options
 
-- ``-f, --set-fuzzy``: Mark machine translations as fuzzy so they are reviewed before use (fuzzy entries are not compiled)
-- ``-l, --locale 'locale'``: Only translate the specified locales
-- ``-u, --untranslated``: Only translate the untranslated messages
-- ``-s, --source-language``: Override the default source language (en) used for translation
-- ``--progress/--no-progress``: Show a progress bar (requires the ``progress`` extra). Shown by default when tqdm is installed and the output is a terminal
+- ``-p, --path``: A locale directory to translate (can be given more than once)
+- ``-a, --app``: An app whose messages to translate (can be given more than once)
+- ``-l, --locale``: Only translate this locale, e.g. ``pt_BR`` or ``pt-br`` (can be given more than once). By default every locale found is translated
+- ``-r, --retranslate``: Translate all messages again, including translated messages and messages awaiting review
+- ``-f, --set-fuzzy``: Mark machine translations as fuzzy so they can be reviewed before use (fuzzy entries are not compiled)
+- ``-s, --source-language``: The language the messages are written in (default ``en``)
+- ``--service``: The translation service to use instead of ``settings.AUTOTRANSLATE_SERVICE``
+- ``--progress/--no-progress``: Show a progress bar (requires the ``progress`` extra). By default it is shown if tqdm is installed and the output is a terminal
 
 ```bash
 python manage.py autotranslate -l 'de' -l 'es'

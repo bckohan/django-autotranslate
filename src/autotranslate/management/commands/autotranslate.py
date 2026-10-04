@@ -13,7 +13,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.core.management import CommandError
 from django.utils.text import format_lazy
 from django.utils.translation import gettext_lazy as _
-from django.utils.translation import to_language
+from django.utils.translation import pgettext, to_language
 from django_typer.completers.apps import app_labels
 from django_typer.completers.path import directories, import_paths
 from django_typer.completers.settings import languages
@@ -55,10 +55,13 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
 
     help = format_lazy(
         _(
-            "Machine translate all the message files that have been generated "
-            "using the {makemessages} command in the given apps or directories. By "
-            "default, only directories in {locale_paths} are translated."
+            "Machine translate the message (.po) files created by {makemessages}. "
+            "Only new and changed messages are translated. Translates the locale "
+            "directories given with {path} and {app}, or those in {locale_paths} if "
+            "neither is given."
         ),
+        path="--path",
+        app="--app",
         makemessages=(
             "[makemessages]"
             "(https://docs.djangoproject.com/en/stable/ref/django-admin/#django-admin-makemessages)"
@@ -95,10 +98,7 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
                 "-p",
                 help=t.cast(
                     str,
-                    _(
-                        "The path(s) to the locale directories containing the .po "
-                        "files to translate."
-                    ),
+                    _("A locale directory to translate (can be given more than once)."),
                 ),
                 shell_complete=directories,
             ),
@@ -108,7 +108,12 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
             Option(
                 "--app",
                 "-a",
-                help=t.cast(str, _("The app(s) to translate messages for.")),
+                help=t.cast(
+                    str,
+                    _(
+                        "An app whose messages to translate (can be given more than once)."
+                    ),
+                ),
                 parser=app_config,
                 shell_complete=app_labels,
             ),
@@ -121,9 +126,8 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
                 help=t.cast(
                     str,
                     _(
-                        "Translate the message files for the given locale(s) (e.g. "
-                        "pt_BR). By default, translations will be generated for all "
-                        "locales supported by the configured translator service."
+                        "Only translate this locale, e.g. pt_BR or pt-br (can be given "
+                        "more than once). By default every locale found is translated."
                     ),
                 ),
                 shell_complete=languages,
@@ -135,7 +139,11 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
                 "--retranslate",
                 "-r",
                 help=t.cast(
-                    str, _("Re-translate messages that already have translations.")
+                    str,
+                    _(
+                        "Translate all messages again, including translated messages "
+                        "and messages awaiting review."
+                    ),
                 ),
             ),
         ] = retranslate,
@@ -147,7 +155,7 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
                 help=t.cast(
                     str,
                     _(
-                        "Mark machine translations as fuzzy so they are reviewed "
+                        "Mark machine translations as fuzzy so they can be reviewed "
                         "before use (fuzzy entries are not compiled by default)."
                     ),
                 ),
@@ -158,7 +166,7 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
             Option(
                 "--source-language",
                 "-s",
-                help=t.cast(str, _("Set the source language used for translation.")),
+                help=t.cast(str, _("The language the messages are written in.")),
                 shell_complete=languages,
             ),
         ] = source_language,
@@ -169,12 +177,8 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
                 help=t.cast(
                     str,
                     format_lazy(
-                        _(
-                            "The translation service to use if different than the "
-                            "configured service in settings ({settings}.{setting})."
-                        ),
-                        settings="settings",
-                        setting=SERVICE_SETTING,
+                        _("The translation service to use instead of {setting}."),
+                        setting=f"settings.{SERVICE_SETTING}",
                     ),
                 ),
                 shell_complete=import_paths,
@@ -187,8 +191,8 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
                 help=t.cast(
                     str,
                     _(
-                        "Show a progress bar (requires tqdm). By default the progress "
-                        "bar is shown if tqdm is installed and the output is a "
+                        "Show a progress bar (requires the tqdm package). By default "
+                        "it is shown if tqdm is installed and the output is a "
                         "terminal."
                     ),
                 ),
@@ -197,7 +201,9 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
     ):
         if not getattr(settings, "USE_I18N", False):
             raise ImproperlyConfigured(
-                _("{framework} framework is disabled").format(framework="i18n")
+                _("Translation is disabled. Set {setting} in your settings.").format(
+                    setting="USE_I18N = True"
+                )
             )
 
         self.service = get_translator(service, source="--service")
@@ -229,9 +235,9 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
         if not self.to_translate:
             raise CommandError(
                 _(
-                    "Nothing to translate. Please provide a path or app or configure "
-                    "{setting}"
-                ).format(setting="settings.LOCALE_PATHS")
+                    "No locale directories to translate. Use {path} or {app}, or set "
+                    "{setting}."
+                ).format(path="--path", app="--app", setting="settings.LOCALE_PATHS")
             )
 
         # use the service as a context manager so it can reuse resources (e.g.
@@ -270,7 +276,10 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
         from tqdm import tqdm
 
         with tqdm(
-            total=total, desc=str(_("Total")), unit=str(_("strings")), position=0
+            total=total,
+            desc=pgettext("progress bar", "Total"),
+            unit=pgettext("progress bar", "messages"),
+            position=0,
         ) as self.progress:
             try:
                 yield
@@ -296,7 +305,7 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
         with tqdm(
             total=total,
             desc=str(self.language_codes.get(language, language)),
-            unit=str(_("strings")),
+            unit=pgettext("progress bar", "messages"),
             position=1,
             leave=False,
         ) as self.language_progress:
@@ -328,7 +337,9 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
         """
         if not directory.exists():
             self.message(
-                _("Directory `{}` does not exist.").format(directory),
+                _("The locale directory {directory} does not exist.").format(
+                    directory=directory
+                ),
                 fg="red",
             )
             return
@@ -351,7 +362,9 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
                     and language not in self.locale
                 ):
                     self.message(
-                        _("Skipping translation for locale `{}`").format(locale_name),
+                        _("Skipping {locale}: not selected with {option}.").format(
+                            locale=locale_name, option="--locale"
+                        ),
                         fg="yellow",
                     )
                     continue
@@ -361,7 +374,7 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
                 if service_language is None:
                     self.message(
                         _(
-                            "Skipping {file}: {service} does not support `{language}`"
+                            "Skipping {file}: {service} does not support {language}."
                         ).format(
                             file=po_file,
                             service=self.service.__class__.__name__,
@@ -385,7 +398,7 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
         # when shown, the progress bars show which language is being translated
         if self.progress is None:
             self.secho(
-                _("Translating {file} into `{target_language}`").format(
+                _("Translating {file} into {target_language}").format(
                     file=message_file.path,
                     target_language=self.language_codes.get(
                         message_file.language, message_file.language
@@ -482,7 +495,8 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
         def mismatch(received: int, sent: int) -> CommandError:
             return CommandError(
                 _(
-                    "{service} returned {received} translations for {sent} messages."
+                    "{service} returned the wrong number of translations: expected "
+                    "{sent}, received {received}."
                 ).format(
                     service=self.service.__class__.__name__,
                     received=received,
@@ -557,9 +571,9 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
         if restored is None:
             self.message(
                 _(
-                    "Discarding translation with mismatched placeholders or markup: "
-                    "{msgid!r} -> {translation!r}"
-                ).format(msgid=message.source, translation=translation),
+                    "Discarded the translation of {source} because its placeholders "
+                    "or markup changed: {translation}"
+                ).format(source=repr(message.source), translation=repr(translation)),
                 fg="yellow",
             )
         return restored

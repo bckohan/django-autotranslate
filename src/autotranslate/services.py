@@ -142,7 +142,9 @@ class TranslatorService:
         Returns a single translated string literal for the target language.
         """
         raise NotImplementedError(
-            _("{function}() must be overridden.").format(function="translate_string")
+            _("Subclasses of {base} must implement {function}().").format(
+                base="TranslatorService", function="translate_string"
+            )
         )
 
     def translate_strings(
@@ -158,7 +160,9 @@ class TranslatorService:
         :yield: translated strings
         """
         raise NotImplementedError(
-            _("{function}() must be overridden.").format(function="translate_strings")
+            _("Subclasses of {base} must implement {function}().").format(
+                base="TranslatorService", function="translate_strings"
+            )
         )
 
     def protect(self, text: str, flags: t.Collection[str] = ()) -> Protected:
@@ -386,16 +390,26 @@ class GoogleAPITranslatorService(TranslatorService):
         super().__init__(language_map=language_map)
         if not api_key:
             raise ImproperlyConfigured(
-                _("The `{option}` option is required by `{service}`.").format(
-                    option="api_key", service=self.__class__.__name__
+                _(
+                    "{service} requires the {option} option. Add it to OPTIONS in "
+                    "{setting}."
+                ).format(
+                    service=self.__class__.__name__,
+                    option="api_key",
+                    setting="settings.AUTOTRANSLATE_SERVICE",
                 )
             )
         try:
             from googleapiclient.discovery import build
         except ImportError as ie:
             raise ImportError(
-                _("`{service}` requires the `{package}` package.").format(
-                    service=self.__class__.__name__, package="google-api-python-client"
+                _(
+                    "{service} requires the {package} package. Install it with: "
+                    "{command}"
+                ).format(
+                    service=self.__class__.__name__,
+                    package="google-api-python-client",
+                    command='pip install "django-autotranslate[google]"',
                 )
             ) from ie
 
@@ -484,8 +498,13 @@ class AmazonTranslateTranslatorService(TranslatorService):
             import boto3
         except ImportError as ie:
             raise ImportError(
-                _("`{service}` requires the `{package}` package.").format(
-                    service=self.__class__.__name__, package="boto3"
+                _(
+                    "{service} requires the {package} package. Install it with: "
+                    "{command}"
+                ).format(
+                    service=self.__class__.__name__,
+                    package="boto3",
+                    command='pip install "django-autotranslate[amazon]"',
                 )
             ) from ie
 

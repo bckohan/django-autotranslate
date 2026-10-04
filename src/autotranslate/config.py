@@ -69,31 +69,41 @@ def get_translator(
         source = f"settings.{SERVICE_SETTING}"
     else:
         options = {}
-        source = source or _("the service path")
 
     try:
         translator = import_string(service_path)
     except ImportError as ie:
+        message = (
+            _("Could not import the translation service {service} ({source}).")
+            if source
+            else _("Could not import the translation service {service}.")
+        )
         raise ImproperlyConfigured(
-            _(
-                "Could not import the translator service '{translator}' specified "
-                "in {setting}."
-            ).format(translator=service_path, setting=source)
+            message.format(service=service_path, source=source)
         ) from ie
     if not (isinstance(translator, type) and issubclass(translator, TranslatorService)):
-        raise ImproperlyConfigured(
+        message = (
             _(
-                "The translator service '{translator}' specified in {setting} "
-                "does not subclass TranslatorService."
-            ).format(translator=service_path, setting=source)
+                "The translation service {service} ({source}) is not a subclass of "
+                "{base}."
+            )
+            if source
+            else _("The translation service {service} is not a subclass of {base}.")
+        )
+        raise ImproperlyConfigured(
+            message.format(
+                service=service_path,
+                source=source,
+                base="autotranslate.services.TranslatorService",
+            )
         )
     try:
         return translator(**options)
     except TypeError as err:
         raise ImproperlyConfigured(
-            _(
-                "Invalid options for the translator service '{translator}': {error}"
-            ).format(translator=service_path, error=err)
+            _("Invalid options for the translation service {service}: {error}").format(
+                service=service_path, error=err
+            )
         ) from err
 
 
