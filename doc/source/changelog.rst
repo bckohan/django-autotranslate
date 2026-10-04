@@ -20,8 +20,8 @@ v2.0.0 (unreleased)
 * Messages whose source string changed (marked fuzzy by ``makemessages``) are now
   retranslated, and fuzzy entries awaiting review are no longer overwritten.
   ``--set-fuzzy`` marks the new machine translations for review.
-* Added an optional progress bar (``--progress/--no-progress``), install the
-  ``progress`` extra to use it.
+* Added a progress bar, shown when the ``progress`` extra is installed and the output
+  is a terminal (``--no-progress`` turns it off).
 * ``AUTOTRANSLATE_SERVICE`` may now be a dictionary with a ``BACKEND`` import path
   and ``OPTIONS`` that configure the service.
 * Django language codes are matched to each service's language codes, and

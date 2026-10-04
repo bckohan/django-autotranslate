@@ -36,7 +36,7 @@ INSTALLED_APPS = (
 ## Quick Start
 
 ```bash
-python manage.py autotranslate
+django-admin autotranslate
 ```
 
 The command finds all the generated pot (``.po``) files under the locale paths (``LOCALE_PATHS``) specified in django project settings, and translates them automatically.
@@ -50,10 +50,10 @@ The command finds all the generated pot (``.po``) files under the locale paths (
 - ``-f, --set-fuzzy``: Mark machine translations as fuzzy so they can be reviewed before use (fuzzy entries are not compiled)
 - ``-s, --source-language``: The language the messages are written in (default ``en``)
 - ``--service``: The translation service to use instead of ``settings.AUTOTRANSLATE_SERVICE``
-- ``--progress/--no-progress``: Show a progress bar (requires the ``progress`` extra). By default it is shown if tqdm is installed and the output is a terminal
+- ``--no-progress``: Do not show a progress bar. A progress bar is shown when the ``progress`` extra is installed and the output is a terminal
 
 ```bash
-python manage.py autotranslate -l 'de' -l 'es'
+django-admin autotranslate -l 'de' -l 'es'
 ```
 
 ### Settings

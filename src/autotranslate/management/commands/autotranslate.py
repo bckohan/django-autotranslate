@@ -194,20 +194,19 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
                 shell_complete=import_paths,
             ),
         ] = get_service_import_path(),
-        progress: t.Annotated[
-            bool | None,
+        no_progress: t.Annotated[
+            bool,
             Option(
-                "--progress/--no-progress",
+                "--no-progress",
                 help=t.cast(
                     str,
                     _(
-                        "Show a progress bar (requires the tqdm package). By default "
-                        "it is shown if tqdm is installed and the output is a "
-                        "terminal."
+                        "Do not show a progress bar. A progress bar is shown when the "
+                        "tqdm package is installed and the output is a terminal."
                     ),
                 ),
             ),
-        ] = None,
+        ] = False,
     ):
         if not getattr(settings, "USE_I18N", False):
             raise ImproperlyConfigured(
@@ -217,15 +216,8 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
             )
 
         self.service = get_translator(service, source="--service")
-        tqdm_installed = find_spec("tqdm") is not None
-        if progress and not tqdm_installed:
-            raise CommandError(
-                _("{option} requires the {package} package.").format(
-                    option="--progress", package="tqdm"
-                )
-            )
-        self.show_progress = tqdm_installed and (
-            progress if progress is not None else sys.stderr.isatty()
+        self.show_progress = (
+            not no_progress and sys.stderr.isatty() and find_spec("tqdm") is not None
         )
         self.locale = locale or []
         self.retranslate = retranslate

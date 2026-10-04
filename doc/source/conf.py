@@ -28,7 +28,10 @@ extensions = [
     "sphinx_tabs.tabs",
     "sphinxcontrib.typer",
     "sphinx.ext.viewcode",
+    'sphinx.ext.autosectionlabel',
 ]
+
+autosectionlabel_prefix_document = True
 
 templates_path = ["_templates"]
 exclude_patterns = []

@@ -423,12 +423,16 @@ class ProgressBarTestCase(TestCase):
             messages.mkdir(parents=True)
             shutil.copy(DATA_DIR / "django.po", messages / "django.po")
 
-    def translate(self, *args, stderr=None):
+    def translate(self, *args, terminal=True):
         import contextlib
         import io
 
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
         stdout = io.StringIO()
-        stderr = stderr or io.StringIO()
+        stderr = Terminal() if terminal else io.StringIO()
         with contextlib.redirect_stderr(stderr):
             call_command(
                 "autotranslate",
@@ -442,7 +446,7 @@ class ProgressBarTestCase(TestCase):
         return stdout.getvalue(), stderr.getvalue()
 
     def test_progress(self):
-        stdout, stderr = self.translate("--progress")
+        stdout, stderr = self.translate()
         # 3 strings per file (Location, City, Cities) x 2 files
         self.assertIn("Total: 100%", stderr)
         self.assertIn("6/6", stderr)
@@ -459,29 +463,16 @@ class ProgressBarTestCase(TestCase):
         self.assertNotIn("%", stderr)
         self.assertEqual(2, stdout.count("Translating"))
 
-    def test_default_progress_follows_terminal(self):
-        import io
-
-        class Terminal(io.StringIO):
-            def isatty(self):
-                return True
-
-        _, stderr = self.translate()
+    def test_no_terminal(self):
+        stdout, stderr = self.translate(terminal=False)
         self.assertNotIn("%", stderr)
+        self.assertEqual(2, stdout.count("Translating"))
 
-        _, stderr = self.translate("--retranslate", stderr=Terminal())
-        self.assertIn("100%", stderr)
-
-    def test_progress_requires_tqdm(self):
-        from django.core.management import CommandError
-
+    def test_without_tqdm(self):
         with mock.patch(
             "autotranslate.management.commands.autotranslate.find_spec",
             return_value=None,
         ):
-            with self.assertRaisesMessage(CommandError, "tqdm"):
-                self.translate("--progress")
-            # without tqdm the default is no progress bar
             stdout, stderr = self.translate()
         self.assertNotIn("%", stderr)
         self.assertEqual(2, stdout.count("Translating"))
@@ -492,7 +483,7 @@ class ProgressBarTestCase(TestCase):
         with mock.patch.object(
             FakeTranslatorService, "restore", lambda self, message, translation: None
         ):
-            stdout, stderr = self.translate("--progress")
+            stdout, stderr = self.translate()
         self.assertIn("because its placeholders or markup changed", stdout)
         self.assertIn("100%", stderr)
 
@@ -501,7 +492,7 @@ class ProgressBarTestCase(TestCase):
             DATA_DIR / "django.po",
             self.locale_dir / "de" / "LC_MESSAGES" / "djangojs.po",
         )
-        _, stderr = self.translate("--progress")
+        _, stderr = self.translate()
         self.assertIn("Total: 100%", stderr)
         self.assertIn("9/9", stderr)
         # one bar for both of the German files

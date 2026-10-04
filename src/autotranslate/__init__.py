@@ -28,7 +28,7 @@ files.
 
 VERSION = (2, 0, 0)
 
-__title__ = "Django Auto Translate"
+__title__ = "django-autotranslate"
 __version__ = ".".join(str(i) for i in VERSION)
 __author__ = "Ankit Popli, Brian Kohan"
 __license__ = "MIT"

@@ -6,6 +6,8 @@
 ``autotranslate``
 =====================
 
+.. django-admin:: autotranslate
+
 .. typer:: autotranslate.management.commands.autotranslate.Command:typer_app
     :prog: django-admin autotranslate
     :width: 80
@@ -47,10 +49,10 @@ Options
     :setting:`AUTOTRANSLATE_SERVICE`. The ``OPTIONS`` in that setting are only used
     with the service it configures.
 
-``--progress`` / ``--no-progress``
-    Show a progress bar. Requires the ``progress`` extra (``pip install
-    "django-autotranslate[progress]"``). By default it is shown if tqdm is installed and
-    the output is a terminal.
+``--no-progress``
+    Do not show a progress bar. A progress bar is shown when the ``progress`` extra is
+    installed (``pip install "django-autotranslate[progress]"``) and the output is a
+    terminal.
 
 Messages that need translating are sent one file at a time. A file is only written once
 all of its messages have been translated, and translations whose placeholders or markup
