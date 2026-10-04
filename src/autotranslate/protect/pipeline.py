@@ -2,10 +2,10 @@
 Protect a message's placeholders and markup while it is translated:
 
 1. parse the message into segments (:func:`~.parse.parse`)
-2. encode the segments with the service's guard (:meth:`.Guard.encode`)
+2. encode the segments with the service's guard (:meth:`~autotranslate.protect.guards.Guard.encode`)
 3. translate the encoded text (the service)
 4. decode the translation back into segments, rejecting it if opaque segments were
-   lost or changed (:meth:`.Guard.decode`)
+   lost or changed (:meth:`~autotranslate.protect.guards.Guard.decode`)
 5. repair whitespace around opaque segments (:func:`~.repair.repair`)
 6. join the segments into the translated message
 """

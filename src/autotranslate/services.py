@@ -36,7 +36,7 @@ class TranslatorService:
     default_language_map: t.ClassVar[dict[str, str | None]] = {}
     """
     Django language codes that do not map onto the service's language codes by the
-    rules in :meth:`service_language`. None marks languages the service does not
+    rules in :meth:`~autotranslate.services.TranslatorService.service_language`. None marks languages the service does not
     support.
     """
 
@@ -70,7 +70,7 @@ class TranslatorService:
     def supported_languages(self) -> t.Collection[str] | None:
         """
         The language codes this service supports. Override this to enable language
-        code matching in :meth:`service_language`. It is called at most once per
+        code matching in :meth:`~autotranslate.services.TranslatorService.service_language`. It is called at most once per
         service instance.
 
         :return: The service's language codes, or None if they are not known.

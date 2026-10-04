@@ -507,3 +507,55 @@ class ProgressBarTestCase(TestCase):
         # one bar for both of the German files
         self.assertEqual(1, stderr.count("German:   0%"))
         self.assertIn("0/6", stderr)
+
+
+class PluralFormsTestCase(TestCase):
+    service = f"{__name__}.FakeTranslatorService"
+
+    def test_all_plural_forms_filled(self):
+        # Django's Spanish catalog declares 3 plural forms, but makemessages only
+        # creates 2 msgstr[n] entries - every declared form must be translated
+        locale_dir = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, locale_dir)
+        po_path = locale_dir / "es" / "LC_MESSAGES" / "django.po"
+        po_path.parent.mkdir(parents=True)
+        po = polib.POFile()
+        po.metadata = {
+            "Content-Type": "text/plain; charset=UTF-8",
+            "Plural-Forms": (
+                "nplurals=3; plural=n == 1 ? 0 : n != 0 && n % 1000000 == 0 ? 1 : 2;"
+            ),
+        }
+        po.append(
+            polib.POEntry(
+                msgid="%(count)d file",
+                msgid_plural="%(count)d files",
+                msgstr_plural={0: "", 1: ""},
+                flags=["python-format"],
+            )
+        )
+        po.append(
+            polib.POEntry(
+                msgid="%(count)d page",
+                msgid_plural="%(count)d pages",
+                msgstr_plural={0: "una", 1: "varias"},
+                flags=["python-format"],
+            )
+        )
+        po.save(str(po_path))
+
+        call_command(
+            "autotranslate", "--path", str(locale_dir), "--service", self.service
+        )
+
+        entries = polib.pofile(str(po_path))
+        self.assertEqual(
+            {
+                0: "[es] %(count)d FILE",
+                1: "[es] %(count)d FILES",
+                2: "[es] %(count)d FILES",
+            },
+            entries[0].msgstr_plural,
+        )
+        # translated entries are left alone
+        self.assertEqual({0: "una", 1: "varias"}, entries[1].msgstr_plural)

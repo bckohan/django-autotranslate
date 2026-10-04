@@ -110,7 +110,7 @@ def repair(source: list[Segment], translation: list[Segment]) -> list[Segment]:
 
     :param source: The source message's segments
     :param translation: The decoded translation's segments, whose opaque segments
-        are the source's (see :meth:`Guard.decode`)
+        are the source's (see :meth:`~autotranslate.protect.guards.Guard.decode`)
     :return: The repaired translation segments
     """
     context = _context(source)

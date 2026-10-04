@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import typing as t
 from contextlib import contextmanager
@@ -31,6 +32,17 @@ from ...protect.pipeline import Protected
 from ...services import TranslatorService
 
 
+def plural_forms(po: polib.POFile) -> int:
+    """
+    The number of plural forms declared by the message file's Plural-Forms header.
+
+    :param po: The message file
+    :return: The number of plural forms, or 0 if it is not declared
+    """
+    match = re.search(r"nplurals\s*=\s*(\d+)", po.metadata.get("Plural-Forms", ""))
+    return int(match.group(1)) if match else 0
+
+
 class MessageFile(t.NamedTuple):
     """A message file with entries that need translating."""
 
@@ -46,11 +58,9 @@ class MessageFile(t.NamedTuple):
 
 class Command(TyperCommand, rich_markup_mode="markdown"):
     """
-    .. typer:: autotranslate.management.commands.autotranslate.Command:typer_app
-        :prog: django-admin autotranslate
-        :width: 80
-        :show-nested:
-        :convert-png: latex
+    The ``autotranslate`` management command. See :ref:`reference-command` for its
+    options. Subclasses can override the methods below to change which messages are
+    translated and how translations are written.
     """
 
     help = format_lazy(
@@ -417,7 +427,10 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
             self.source_language,
         )
         self.update_translations(
-            message_file.po, message_file.messages, self.track(translated_strings)
+            message_file.po,
+            message_file.messages,
+            self.track(translated_strings),
+            plural_forms=plural_forms(message_file.po),
         )
         message_file.po.save()
 
@@ -479,6 +492,7 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
         entries: t.Iterable[polib.POEntry],
         messages: t.Iterable[Protected],
         translated_strings: t.Iterable[str],
+        plural_forms: int = 0,
     ):
         """
         Update the entries with their translations.
@@ -487,6 +501,8 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
         :param messages: The prepared messages, as returned by
             :meth:`get_messages_to_translate` for the entries
         :param translated_strings: The service's translations of the messages
+        :param plural_forms: The number of plural forms the message file's language
+            has. Plural entries are given at least this many forms.
         """
         prepared = iter(messages)
         translations = iter(translated_strings)
@@ -531,10 +547,11 @@ class Command(TyperCommand, rich_markup_mode="markdown"):
                 # fill the first plural form with the entry.msgid translation
                 entry.msgstr_plural[0] = singular
 
-                # fill the rest of plural forms with the entry.msgid_plural translation
-                for k in entry.msgstr_plural:
-                    if k != 0:
-                        entry.msgstr_plural[k] = plural
+                # fill the rest of the plural forms with the entry.msgid_plural
+                # translation - makemessages may create fewer forms than the
+                # language's Plural-Forms header declares
+                for k in range(1, max(plural_forms, len(entry.msgstr_plural))):
+                    entry.msgstr_plural[k] = plural
             else:
                 translation = self.restore(*next_pair())
                 if translation is None:

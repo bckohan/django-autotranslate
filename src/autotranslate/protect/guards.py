@@ -2,7 +2,7 @@
 Guards protect opaque segments while a message is translated.
 
 A guard encodes a message's segments into the text sent to a service and decodes
-the service's translation back into segments. :meth:`Guard.decode` returns None if
+the service's translation back into segments. :meth:`~autotranslate.protect.guards.Guard.decode` returns None if
 the translation's opaque segments do not match the source's.
 """
 
@@ -21,9 +21,23 @@ class Guard:
     content_type: str = "text"
 
     def encode(self, segments: list[Segment]) -> str:
+        """
+        Encode a message's segments into the text sent to the translation service.
+
+        :param segments: The message's segments
+        :return: The text to translate
+        """
         raise NotImplementedError
 
     def decode(self, translation: str, segments: list[Segment]) -> list[Segment] | None:
+        """
+        Decode the service's translation of :meth:`encode`'s text back into segments.
+
+        :param translation: The service's translation
+        :param segments: The source message's segments
+        :return: The translation's segments, or None if its opaque segments do not
+            match the source's
+        """
         raise NotImplementedError
 
 
