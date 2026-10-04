@@ -55,17 +55,49 @@ Django AutoTranslate
         :target: https://djangopackages.org/packages/p/django-autotranslate/
         :alt: Published on Django Packages
 
+django-autotranslate machine translates the message files (``.po``) that Django's
+:django-admin:`makemessages` command creates. It sends the messages that need translating
+to a machine translation service, protects placeholders like ``%(name)s`` and HTML markup
+from being translated, and writes the translations back into your message files.
 
-.. TODO::
+.. code-block:: console
 
-    Introduction to the project.
+    $ python manage.py makemessages -l de -l es
+    $ python manage.py autotranslate
+    $ python manage.py compilemessages
 
-|
+It works with the free Google Translate service out of the box, and with the paid
+`Google Cloud Translation <https://cloud.google.com/translate>`_ and
+`Amazon Translate <https://aws.amazon.com/translate/>`_ services.
+
+.. note::
+
+    Machine translations are a starting point, not a replacement for human translators.
+    Have people who speak your languages review them, see :ref:`howto-review`.
+
+Where to start
+==============
+
+:ref:`tutorial`
+    New to django-autotranslate? Translate a small Django project from start to finish.
+
+:ref:`howto`
+    Step by step guides for common tasks: using a paid service, choosing languages,
+    reviewing translations, keeping them up to date and automating them in CI.
+
+:ref:`reference`
+    The ``autotranslate`` command, settings, supported languages and the Python API.
+
+:ref:`explanation`
+    How the command decides what to translate, how placeholders and markup are
+    protected, how language codes are matched and how to choose a service.
 
 .. toctree::
    :maxdepth: 2
-   :caption: Contents:
+   :hidden:
 
-   howto
-   reference
+   tutorial
+   howto/index
+   reference/index
+   explanation/index
    changelog

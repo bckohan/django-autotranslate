@@ -85,6 +85,13 @@ def activate_language(app, config):
 def setup(app):
     app.connect("config-inited", activate_language)
 
+    # resolve :django-admin:`makemessages` etc. to Django's documentation
+    app.add_crossref_type(
+        directivename="django-admin",
+        rolename="django-admin",
+        indextemplate="pair: %s; django-admin command",
+    )
+
     # Register a sphinx.ext.autodoc.between listener to ignore everything
     # between lines that contain the word IGNORE
     app.connect(

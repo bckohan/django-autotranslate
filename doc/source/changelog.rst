@@ -7,6 +7,11 @@ Change Log
 v2.0.0 (unreleased)
 ===================
 
+* Rewrote the documentation as a tutorial, how-to guides, reference and explanation
+  (`Diátaxis <https://diataxis.fr/>`_).
+* Plural messages are translated into every plural form a language's
+  ``Plural-Forms`` header declares. :django-admin:`makemessages` can create fewer
+  forms, which left some numbers untranslated (e.g. Spanish's third form).
 * **Breaking:** the ``translate_messages`` management command has been renamed to
   ``autotranslate``.
 * Messages whose source string changed (marked fuzzy by ``makemessages``) are now

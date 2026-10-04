@@ -1,28 +1,21 @@
-.. include:: ./refs.rst
+.. include:: ../refs.rst
 
-.. _reference:
+.. _reference-api:
 
-=========
-Reference
-=========
+==========
+Python API
+==========
 
 .. automodule:: autotranslate
 
-.. _autotranslate:
-
-``autotranslate``
------------------
-
-.. autoclass:: autotranslate.management.commands.autotranslate.Command
-    :members:
-
-.. _services:
+.. _reference-api-services:
 
 Services
---------
+========
 
 .. autoclass:: autotranslate.services.TranslatorService
     :members:
+    :special-members: __enter__, __exit__
 
 .. autoclass:: autotranslate.services.GoogleTranslatorService
     :members:
@@ -33,18 +26,24 @@ Services
 .. autoclass:: autotranslate.services.AmazonTranslateTranslatorService
     :members:
 
-.. _config:
+.. autoexception:: autotranslate.services.ServiceUnavailable
 
-Config
-------
+Configuration
+=============
 
 .. automodule:: autotranslate.config
     :members:
 
+Command
+=======
+
+.. autoclass:: autotranslate.management.commands.autotranslate.Command
+    :members: get_messages_to_translate, update_translations, need_translate, restore
+
 .. _protect:
 
 Placeholder and markup protection
----------------------------------
+=================================
 
 .. automodule:: autotranslate.protect.pipeline
     :members:
