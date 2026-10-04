@@ -4,4 +4,4 @@
 .. _PyPI: https://pypi.python.org/pypi/django-autotranslate
 .. _Typer: https://typer.tiangolo.com
 .. _DRY: https://en.wikipedia.org/wiki/Don%27t_repeat_yourself
-.. _django-typer: https://pypi.python.org/pypi/django-typer
+

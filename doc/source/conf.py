@@ -63,6 +63,8 @@ intersphinx_mapping = {
     ),
     "django-typer": ("https://django-typer.readthedocs.io/en/stable", None),
     "python": ("https://docs.python.org/3", None),
+    "polib": ("https://polib.readthedocs.io/en/latest", None),
+    "boto3": ("https://boto3.amazonaws.com/v1/documentation/api/latest", None),
 }
 
 linkcheck_allow_redirects = True

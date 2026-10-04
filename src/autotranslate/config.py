@@ -19,7 +19,7 @@ def get_service_config() -> tuple[str, dict[str, t.Any]]:
     the import path as ``BACKEND`` and an optional ``OPTIONS`` dictionary of keyword
     arguments for the service's constructor.
 
-    :raises ImproperlyConfigured: If the setting is not in one of these forms.
+    :raises ~django.core.exceptions.ImproperlyConfigured: If the setting is not in one of these forms.
     :return: A tuple of the service's import path and its options.
     """
     config = getattr(settings, SERVICE_SETTING, DEFAULT_SERVICE)
@@ -59,7 +59,7 @@ def get_translator(
     :param service_path: The path to the translator service to use if different from
         settings.AUTOTRANSLATE_SERVICE.
     :param source: Where the given service path came from, used in error messages.
-    :raises ImproperlyConfigured: If the service path is not a valid translator
+    :raises ~django.core.exceptions.ImproperlyConfigured: If the service path is not a valid translator
         service, does not subclass TranslatorService or its options are invalid.
     :return: An instantiated translator service.
     """

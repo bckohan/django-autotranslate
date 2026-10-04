@@ -220,3 +220,5 @@ doc/build/
 .python-version
 .vscode
 **/.DS_Store
+docs
+.claude
