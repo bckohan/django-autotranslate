@@ -29,7 +29,7 @@ From a project that has the app in :setting:`INSTALLED_APPS`, translate the app'
 
 .. code-block:: console
 
-    $ python manage.py autotranslate --app myapp
+    $ django-admin autotranslate --app myapp
 
 or give the directory with ``--path`` (``-p``), which needs no project setup beyond
 ``autotranslate`` being installed:

@@ -11,9 +11,9 @@ translations:
 
 .. code-block:: console
 
-    $ python manage.py makemessages --all
-    $ python manage.py autotranslate
-    $ python manage.py compilemessages
+    $ django-admin makemessages --all
+    $ django-admin autotranslate
+    $ django-admin compilemessages
 
 :django-admin:`makemessages` adds new messages to every message file and marks messages
 whose source text changed. ``autotranslate`` then translates:
@@ -33,7 +33,7 @@ To replace all translations, for example after switching to a better service, us
 
 .. code-block:: console
 
-    $ python manage.py autotranslate --retranslate
+    $ django-admin autotranslate --retranslate
 
 .. warning::
 

@@ -18,7 +18,7 @@ directory names) and language codes (``pt-br``) work:
 
 .. code-block:: console
 
-    $ python manage.py autotranslate -l de -l pt_BR -l zh-hans
+    $ django-admin autotranslate -l de -l pt_BR -l zh-hans
 
 Add a language
 ==============
@@ -27,8 +27,8 @@ Create its message file, then translate it:
 
 .. code-block:: console
 
-    $ python manage.py makemessages -l ja
-    $ python manage.py autotranslate -l ja
+    $ django-admin makemessages -l ja
+    $ django-admin autotranslate -l ja
 
 Add the language to :setting:`LANGUAGES` too, so your site offers it.
 

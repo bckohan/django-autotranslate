@@ -61,10 +61,12 @@ Create ``.github/workflows/translate.yml``:
           - name: Translate
             env:
               GOOGLE_TRANSLATE_API_KEY: ${{ secrets.GOOGLE_TRANSLATE_API_KEY }}
+              DJANGO_SETTINGS_MODULE: mysite.settings
+              PYTHONPATH: .
             run: |
-              python manage.py makemessages --all
-              python manage.py autotranslate --no-progress
-              python manage.py compilemessages
+              django-admin makemessages --all
+              django-admin autotranslate --no-progress
+              django-admin compilemessages
           - uses: peter-evans/create-pull-request@v7
             with:
               branch: update-translations

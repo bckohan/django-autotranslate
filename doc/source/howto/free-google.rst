@@ -23,8 +23,8 @@ To stay under the limit, translate a few languages at a time:
 
 .. code-block:: console
 
-    $ python manage.py autotranslate -l de -l fr -l es
-    $ python manage.py autotranslate -l ja -l zh_Hans
+    $ django-admin autotranslate -l de -l fr -l es
+    $ django-admin autotranslate -l ja -l zh_Hans
 
 If you are blocked, wait an hour or so, or run from a different network. Every device
 behind the same public IP address is blocked too.

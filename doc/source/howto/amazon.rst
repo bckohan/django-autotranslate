@@ -52,7 +52,7 @@ role of the machine it runs on. For example:
 
 .. code-block:: console
 
-    $ AWS_PROFILE=translate python manage.py autotranslate
+    $ AWS_PROFILE=translate django-admin autotranslate
 
 Choose a region where Amazon Translate is available.
 

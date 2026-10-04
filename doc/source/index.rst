@@ -62,9 +62,9 @@ from being translated, and writes the translations back into your message files.
 
 .. code-block:: console
 
-    $ python manage.py makemessages -l de -l es
-    $ python manage.py autotranslate
-    $ python manage.py compilemessages
+    $ django-admin makemessages -l de -l es
+    $ django-admin autotranslate
+    $ django-admin compilemessages
 
 It works with the free Google Translate service out of the box, and with the paid
 `Google Cloud Translation <https://cloud.google.com/translate>`_ and

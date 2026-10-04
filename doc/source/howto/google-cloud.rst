@@ -48,7 +48,7 @@ Then translate as usual:
 
 .. code-block:: console
 
-    $ GOOGLE_TRANSLATE_API_KEY=... python manage.py autotranslate
+    $ GOOGLE_TRANSLATE_API_KEY=... django-admin autotranslate
 
 If the key is missing the command stops with
 ``GoogleAPITranslatorService requires the api_key option``.
@@ -75,7 +75,7 @@ and select it for the runs that should use Google Cloud:
 
 .. code-block:: console
 
-    $ python manage.py autotranslate --settings mysite.settings_translate
+    $ django-admin autotranslate --settings mysite.settings_translate
 
 See also
 ========

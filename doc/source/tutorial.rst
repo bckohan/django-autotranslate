@@ -39,7 +39,15 @@ Create a project and an app:
 .. code-block:: console
 
     $ django-admin startproject mysite .
-    $ python manage.py startapp greetings
+    $ django-admin startapp greetings
+
+Tell ``django-admin`` which settings to use and where to find the project, so the
+commands that follow run against it:
+
+.. code-block:: console
+
+    $ export DJANGO_SETTINGS_MODULE=mysite.settings
+    $ export PYTHONPATH=.
 
 Configure the languages
 =======================
@@ -104,7 +112,7 @@ Spanish:
 .. code-block:: console
 
     $ mkdir locale
-    $ python manage.py makemessages -l de -l es
+    $ django-admin makemessages -l de -l es
     processing locale de
     processing locale es
 
@@ -126,7 +134,7 @@ Now run ``autotranslate``:
 
 .. code-block:: console
 
-    $ python manage.py autotranslate
+    $ django-admin autotranslate
     Translating /home/you/mysite/locale/de/LC_MESSAGES/django.po into German
     Translating /home/you/mysite/locale/es/LC_MESSAGES/django.po into Spanish
 
@@ -174,13 +182,13 @@ Compile the message files so Django can use them:
 
 .. code-block:: console
 
-    $ python manage.py compilemessages
+    $ django-admin compilemessages
 
 Then try them in the Django shell:
 
 .. code-block:: console
 
-    $ python manage.py shell -c "
+    $ django-admin shell -c "
     from django.utils import translation
     from greetings.messages import welcome
     for language in ['en', 'de', 'es']:
@@ -198,7 +206,7 @@ Run ``autotranslate`` a second time:
 
 .. code-block:: console
 
-    $ python manage.py autotranslate
+    $ django-admin autotranslate
 
 It prints nothing: every message is translated, so there is nothing to send. By
 default ``autotranslate`` only translates messages that have no translation, or whose

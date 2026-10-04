@@ -17,7 +17,7 @@ Run ``autotranslate`` with ``--set-fuzzy`` (``-f``):
 
 .. code-block:: console
 
-    $ python manage.py autotranslate --set-fuzzy
+    $ django-admin autotranslate --set-fuzzy
 
 Each machine translation is marked with gettext's ``fuzzy`` flag:
 
@@ -41,7 +41,7 @@ review. Correct each translation and remove its fuzzy flag (in a text editor, de
 
 .. code-block:: console
 
-    $ python manage.py compilemessages
+    $ django-admin compilemessages
 
 Running ``autotranslate --set-fuzzy`` again leaves translations that are waiting for
 review alone, so it never overwrites a reviewer's work in progress.
